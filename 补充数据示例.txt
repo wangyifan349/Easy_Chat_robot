@@ -1,0 +1,276 @@
+"""
+在重新构建对话模型时，建议将数据组织成切片形式。这种方式可以快速而准确地回答用户的问题，避免冗长的回复，同时也便于进行语句的拼接。
+在实际应用中，可以考虑使用代码块存储和QA模式的方法。
+MySQL能够实现快速检索(准确度有时候不太理想)。
+此外，如果采用向量索引，可以考虑使用Faiss进行快速的L2距离搜索，或者使用词嵌入方法和BERT编码器。
+---
+经过微调的BERT嵌入层在语义理解方面表现出色，能够提供高匹配度和准确率。
+双向编码的特性使得BERT能够同时考虑上下文信息，更好地捕捉词语之间的关系和语义。
+BERT的准确度高于传统的词嵌入方法，如词袋模型和Word2Vec
+"""
+
+"""
+import torch
+from sentence_transformers import SentenceTransformer, util
+# 加载支持句子语义对比的BERT模型
+model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+def get_sentence_embedding(sentence):
+    # 获取句子嵌入
+    return model.encode(sentence)
+# 示例句子
+sentence1 = "我喜欢编程。"
+sentence2 = "I love programming."
+# 获取句子嵌入
+embedding1 = get_sentence_embedding(sentence1)
+embedding2 = get_sentence_embedding(sentence2)
+# 计算余弦相似度
+similarity = util.pytorch_cos_sim(embedding1, embedding2)
+print(f"句子相似度: {similarity.item():.4f}")
+
+或者考虑TensorFlow hub也可以
+
+import tensorflow as tf
+import tensorflow_hub as hub
+import numpy as np
+# 加载多语言句子编码器
+model = hub.load("https://tfhub.dev/google/universal-sentence-encoder-multilingual/3")
+def get_sentence_embedding(sentence):
+    # 获取句子嵌入
+    return model([sentence]).numpy()
+def cosine_similarity(vec1, vec2):
+    # 计算余弦相似度
+    return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+# 示例句子
+sentence1 = "我喜欢编程。"
+sentence2 = "I love programming."
+# 获取句子嵌入
+embedding1 = get_sentence_embedding(sentence1)
+embedding2 = get_sentence_embedding(sentence2)
+# 计算相似度
+similarity = cosine_similarity(embedding1, embedding2)
+print(f"句子语意相似度: {similarity:.4f}")
+
+
+
+from sentence_transformers import SentenceTransformer, util
+# 加载预训练的SentenceTransformer模型
+model = SentenceTransformer('all-MiniLM-L6-v2') 
+# 定义问题和答案的字典
+qa_dict = {
+    "What is the capital of France?": "The capital of France is Paris.",
+    "What is the largest ocean on Earth?": "The largest ocean on Earth is the Pacific Ocean.",
+    "Who wrote 'To Kill a Mockingbird'?": "Harper Lee wrote 'To Kill a Mockingbird'.",
+    "What is the currency of Japan?": "The currency of Japan is the Yen.",
+}
+# 将问题和答案转换为嵌入
+questions = list(qa_dict.keys())
+answers = list(qa_dict.values())
+question_embeddings = model.encode(questions, convert_to_tensor=True)
+answer_embeddings = model.encode(answers, convert_to_tensor=True)
+# 计算所有问题与答案之间的余弦相似度
+cosine_scores = util.pytorch_cos_sim(question_embeddings, answer_embeddings)
+# 输出每个问题与所有答案的相似度
+for i, question in enumerate(questions):
+    print(f"Question: {question}")
+    for j, answer in enumerate(answers):
+        print(f"  Answer: {answer} | Cosine Similarity: {cosine_scores[i][j]:.4f}")
+
+
+最简单，最简单最直接的方法就是  BERT微调后的  编码器+余弦相似度的搜索🔍
+你就能找到最接近的问题的答案。
+"""
+
+
+faq = {
+    "病毒感冒的主要症状是什么？": "病毒感冒的主要症状包括流鼻涕、喉咙痛、咳嗽、打喷嚏、头痛、肌肉酸痛和轻度发热。症状通常在感染后1到3天内出现，持续约一周。",
+    "病毒感冒是如何传播的？": "病毒感冒主要通过空气中的飞沫传播，当感染者咳嗽、打喷嚏或说话时，病毒会散播到周围环境中。此外，接触被病毒污染的物体后再触摸面部（如眼睛、鼻子或嘴巴）也可能导致感染。",
+    "我该如何预防病毒感冒？": "预防病毒感冒的方法包括勤洗手（特别是在触摸公共物品后）、避免与感冒患者密切接触、保持良好的室内通风、使用酒精消毒剂、以及在流感季节尽量避免人群密集的地方。",
+    "病毒感冒需要看医生吗？": "大多数病毒感冒是轻微的，通常不需要看医生。但如果症状严重、持续时间过长，或出现高烧、呼吸困难、胸痛、严重头痛或意识模糊等症状时，应及时就医。",
+    "病毒感冒可以用什么药物缓解症状？": "可以使用非处方药物如对乙酰氨基酚或布洛芬来缓解发热和疼痛，抗组胺药（如氯雷他定）可以减轻流鼻涕和打喷嚏的症状。保持充足的水分和休息也很重要。",
+    "病毒感冒会引发并发症吗？": "虽然大多数人会在几天内康复，但对于老年人、婴儿或有基础疾病（如哮喘、糖尿病等）的人，病毒感冒可能会引发并发症，如肺炎、支气管炎或加重基础疾病。",
+    "感冒和流感有什么区别？": "感冒通常症状较轻，发热不明显，主要表现为上呼吸道症状；而流感症状较重，常伴有高热、全身酸痛、极度疲劳和干咳。流感也更容易引发严重并发症，尤其在高风险人群中。"
+}
+
+
+antiviral_faq = {
+    "奥司他韦（Oseltamivir）是什么？": "奥司他韦是一种抗病毒药物，主要用于治疗和预防流感病毒感染。它在症状出现后的48小时内使用效果最佳，可以帮助缩短病程和减轻症状。奥司他韦通常以口服胶囊或液体形式给药，适用于成人和儿童。",
+    "奥司他韦的作用机制是什么？": "奥司他韦通过抑制流感病毒的神经氨酸酶活性，阻止病毒在体内的扩散。神经氨酸酶是病毒在感染细胞后释放新病毒颗粒所必需的酶，抑制该酶可以有效减少病毒的传播和感染程度。",
+    "奥司他韦有哪些副作用？": "奥司他韦的副作用通常较轻，可能包括恶心、呕吐、腹泻、头痛和失眠等。大多数患者在停止用药后症状会消失。虽然严重副作用较少见，但如果出现过敏反应或精神症状（如幻觉、躁动），应立即就医。",
+    "扎那米韦（Zanamivir）是什么？": "扎那米韦是一种抗病毒药物，专门用于治疗流感，适用于12岁及以上的患者。它通常通过吸入给药，适合那些无法口服药物的患者。扎那米韦在流感季节中被广泛使用，尤其是在流感暴发期间。",
+    "扎那米韦的作用机制是什么？": "扎那米韦的作用机制与奥司他韦类似，它通过抑制流感病毒的神经氨酸酶，减少病毒在体内的传播。通过这种方式，扎那米韦可以帮助患者更快地康复，并降低并发症的风险。",
+    "扎那米韦有哪些副作用？": "扎那米韦的副作用可能包括呼吸道刺激、咳嗽、喉咙痛和头痛等。部分患者可能会出现过敏反应，如皮疹或呼吸困难。使用前应告知医生是否有哮喘或其他呼吸系统疾病的病史。",
+    "阿昔洛韦（Acyclovir）是什么？": "阿昔洛韦是一种抗病毒药物，主要用于治疗由单纯疱疹病毒和水痘-带状疱疹病毒引起的感染。它可以有效减轻症状，缩短病程，并降低复发的频率。阿昔洛韦可以通过口服、静脉注射或局部涂抹的方式使用。",
+    "阿昔洛韦的作用机制是什么？": "阿昔洛韦通过抑制病毒DNA合成，阻止病毒的复制。它在感染细胞内被转化为活性形式，干扰病毒的遗传物质，从而有效控制病毒的扩散。",
+    "阿昔洛韦有哪些副作用？": "阿昔洛韦的副作用可能包括恶心、腹泻、头痛、乏力和肾功能损害等。使用时需在医生指导下进行，特别是对于肾功能不全的患者，应调整剂量以避免毒性反应。",
+    "伐昔洛韦（Valacyclovir）是什么？": "伐昔洛韦是一种抗病毒药物，主要用于治疗单纯疱疹、带状疱疹和生殖器疱疹。它的生物利用度高于阿昔洛韦，因此通常需要更少的剂量。伐昔洛韦可以通过口服给药，适合长期管理和预防复发。",
+    "伐昔洛韦的作用机制是什么？": "伐昔洛韦的作用机制与阿昔洛韦相似，通过抑制病毒DNA合成，阻止病毒的复制。它在体内被迅速转化为阿昔洛韦，从而发挥抗病毒作用。",
+    "伐昔洛韦有哪些副作用？": "伐昔洛韦的副作用可能包括头痛、恶心、腹泻和腹痛等，少数
+    "伐昔洛韦有哪些副作用？": "伐昔洛韦的副作用可能包括头痛、恶心、腹泻和腹痛等，少数患者可能出现过敏反应，如皮疹或呼吸困难。使用时应在医生指导下进行，特别是对于有肾功能问题的患者，可能需要调整剂量以避免潜在的副作用。",
+    "利巴韦林（Ribavirin）是什么？": "利巴韦林是一种抗病毒药物，主要用于治疗某些病毒性肝炎（如丙型肝炎）和呼吸道合胞病毒（RSV）感染。它通常与其他抗病毒药物联合使用，以增强疗效。利巴韦林可以通过口服或静脉注射给药。",
+    "利巴韦林的作用机制是什么？": "利巴韦林通过干扰病毒RNA的合成，抑制病毒的复制。它能够影响病毒的遗传物质，从而降低病毒的繁殖能力，帮助患者更快康复。",
+    "利巴韦林有哪些副作用？": "利巴韦林的副作用可能包括贫血、疲劳、头痛、失眠和呼吸系统不适等。使用时需在医生指导下进行，特别是对于孕妇和哺乳期女性，因其可能对胎儿或婴儿产生不良影响。"
+}
+
+
+
+
+
+cosine_similarity_faq = {
+    "什么是余弦相似度？": "余弦相似度是一种衡量两个非零向量之间相似度的度量，计算结果介于-1和1之间。值越接近1，表示两个向量越相似；值越接近0，表示两个向量之间的相似度越低。",
+    "余弦相似度的计算公式是什么？": "余弦相似度的计算公式为：\n"
+    "cosine_similarity(A, B) = (A · B) / (||A|| * ||B||)\n"
+    "其中，A · B 是向量A和向量B的点积，||A||和||B||分别是向量A和B的模（长度）。",
+    "如何用Python计算余弦相似度？": "可以使用NumPy库来计算余弦相似度。以下是一个示例代码：",
+    
+    "余弦相似度示例代码": """
+import numpy as np
+def cosine_similarity(vec_a, vec_b):
+    dot_product = np.dot(vec_a, vec_b)  # 计算点积
+    norm_a = np.linalg.norm(vec_a)      # 计算向量A的模
+    norm_b = np.linalg.norm(vec_b)      # 计算向量B的模
+    if norm_a == 0 or norm_b == 0:      # 防止除以零
+        return 0.0
+    return dot_product / (norm_a * norm_b)
+# 示例向量
+vector_a = np.array([1, 2, 3])
+vector_b = np.array([4, 5, 6])
+# 计算余弦相似度
+similarity = cosine_similarity(vector_a, vector_b)
+print("余弦相似度:", similarity)
+""",
+    "余弦相似度的应用场景有哪些？": "余弦相似度广泛应用于文本分析、推荐系统、信息检索和机器学习等领域。它可以用于比较文档之间的相似性、用户偏好相似性等。",
+    "余弦相似度与欧几里得距离有什么区别？": "余弦相似度主要关注向量的方向，而欧几里得距离则关注向量之间的实际距离。余弦相似度适用于高维稀疏数据（如文本数据），而欧几里得距离更适合于度量实际距离的场景。"
+}
+
+
+
+face_comparison_faq = {
+    "什么是人脸对比库？": "人脸对比库是用于识别和比较人脸图像的工具或库，通常用于身份验证、安全监控和人脸识别等应用。常见的人脸对比库包括OpenCV、Dlib和Face_recognition等。",
+    "如何使用Dlib库进行人脸对比？": "Dlib库提供了强大的人脸检测和对比功能。以下是一个使用Dlib进行人脸对比的示例代码：",
+    "示例代码（Dlib人脸对比）": """
+import dlib
+import numpy as np
+import cv2
+
+# 加载人脸检测器和模型
+detector = dlib.get_frontal_face_detector()
+predictor = dlib.shape_predictor('shape_predictor_68_face_landmarks.dat')
+face_encoder = dlib.face_recognition_model_v1('dlib_face_recognition_resnet_model_v1.dat')
+def get_face_encodings(image):
+    """
+    检测图像中的所有人脸，并返回每个检测到的人脸特征编码和人脸矩形区域
+    """
+    faces = detector(image, 1)  # 使用 upsample 加强检测
+    if len(faces) == 0:
+        return [], []
+    encodings = []
+    face_rects = []
+    for face in faces:
+        shape = predictor(image, face)
+        encoding = face_encoder.compute_face_descriptor(image, shape)
+        encodings.append(np.array(encoding))
+        face_rects.append(face)
+    return encodings, face_rects
+def compare_faces(encoding1, encoding2, threshold=0.6):
+    """
+    计算两个编码之间的欧几里得距离，并判断是否匹配
+    """
+    distance = np.linalg.norm(encoding1 - encoding2)
+    return distance, distance < threshold
+def draw_face_boxes(image, face_rects, labels=None):
+    """
+    在图片上绘制人脸框和标签
+    """
+    for idx, rect in enumerate(face_rects):
+        x1 = rect.left()
+        y1 = rect.top()
+        x2 = rect.right()
+        y2 = rect.bottom()
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        label = labels[idx] if labels and idx < len(labels) else f"Face {idx}"
+        cv2.putText(image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5, (0, 255, 0), 2)
+    return image
+def main():
+    # 读取两张图片
+    image1_path = 'face1.jpg'
+    image2_path = 'face2.jpg'
+    image1 = cv2.imread(image1_path)
+    image2 = cv2.imread(image2_path)
+    if image1 is None:
+        print("无法读取图片：", image1_path)
+        return
+    if image2 is None:
+        print("无法读取图片：", image2_path)
+        return
+    # 获取图片中所有人脸的编码及位置
+    encodings1, face_rects1 = get_face_encodings(image1)
+    encodings2, face_rects2 = get_face_encodings(image2)
+    if not encodings1:
+        print("图片1中未检测到人脸。")
+        return
+    if not encodings2:
+        print("图片2中未检测到人脸。")
+        return
+    # 如果图片中有多个脸，可以逐一进行对比，这里简单取第一张脸进行比对
+    encoding1 = encodings1[0]
+    encoding2 = encodings2[0]
+    distance, is_match = compare_faces(encoding1, encoding2, threshold=0.6)
+    print("欧几里得距离:", distance)
+    print("人脸匹配:", is_match)
+    # 对图片中的人脸绘制边框和标签
+    label1 = f"Encoded Face {0}"
+    label2 = f"Encoded Face {0}"
+    image1_marked = draw_face_boxes(image1.copy(), face_rects1, labels=[label1]*len(face_rects1))
+    image2_marked = draw_face_boxes(image2.copy(), face_rects2, labels=[label2]*len(face_rects2))
+    # 将结果显示出来
+    cv2.imshow("Faces in Image 1", image1_marked)
+    cv2.imshow("Faces in Image 2", image2_marked)
+    print("按任意键退出...")
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+if __name__ == '__main__':
+    main()
+""",
+    
+    "如何使用Face_recognition库进行人脸对比？": "Face_recognition库是基于Dlib构建的，提供了更简单的接口来进行人脸识别和对比。以下是一个使用Face_recognition进行人脸对比的示例代码：",
+    
+    "示例代码（Face_recognition人脸对比）": """
+import face_recognition
+# 加载图像
+image1 = face_recognition.load_image_file('face1.jpg')
+image2 = face_recognition.load_image_file('face2.jpg')
+# 获取人脸特征编码
+encoding1 = face_recognition.face_encodings(image1)[0]
+encoding2 = face_recognition.face_encodings(image2)[0]
+# 比较人脸
+results = face_recognition.compare_faces([encoding1], encoding2)
+print("人脸匹配:", results[0])
+""",
+    "人脸对比的应用场景有哪些？": "人脸对比广泛应用于安全监控、身份验证、社交媒体、智能手机解锁、考勤系统和客户服务等领域。它可以帮助提高安全性和用户体验。",
+    "人脸对比的准确性如何提高？": "提高人脸对比的准确性可以通过使用高质量的图像、优化人脸检测和特征提取算法、增加训练数据集以及使用深度学习模型等方法来实现。"
+}
+
+
+
+
+math_qa_dict = {
+    "什么是高斯消元法？": "高斯消元法是一种用于求解线性方程组的算法。它通过对增广矩阵进行一系列行变换，将其化为阶梯形矩阵或简化阶梯形矩阵，从而可以方便地求解未知数。该方法的核心思想是通过消去变量，逐步简化方程组，最终得到每个变量的值。高斯消元法不仅适用于求解线性方程组，还可以用于计算矩阵的秩和逆矩阵。",
+    "高斯消元法的步骤是什么？": "高斯消元法的步骤包括：1) 将增广矩阵写出，增广矩阵是将线性方程组的系数矩阵与常数项合并而成的矩阵；2) 使用行变换将矩阵化为上三角形，即使得主对角线下方的元素为零；3) 通过回代求解未知数，从最后一个方程开始，逐步向上求解每个未知数的值。这个过程可以有效地减少计算复杂度，尤其是在处理大规模线性方程组时。",
+    "什么是行列式？": "行列式是一个标量值，用于描述方阵的某些性质，如可逆性、线性变换的缩放因子等。行列式的值可以通过特定的计算方法得到，通常用于判断一个矩阵是否可逆。行列式为零表示矩阵不可逆，意味着该矩阵的列向量或行向量线性相关。行列式在多变量微积分、线性代数和几何中都有重要应用。",
+    "如何计算2x2矩阵的行列式？": "对于一个2x2矩阵 [[a, b], [c, d]]，行列式的计算公式为 det(A) = ad - bc。这个公式的几何意义是，行列式的绝对值表示由该矩阵定义的平行四边形的面积。如果行列式为零，表示该矩阵的列向量线性相关，无法形成一个平行四边形。",
+    "什么是特征值和特征向量？": "特征值是线性变换的缩放因子，而特征向量是变换后方向不变的向量。对于一个给定的矩阵A，若存在非零向量v和标量λ，使得 Av = λv，则λ称为特征值，v称为特征向量。特征值和特征向量在许多领域中都有应用，包括系统稳定性分析、主成分分析和量子力学等。",
+    "如何求解特征值？": "求解特征值的方法是计算特征方程 det(A - λI) = 0，其中I为单位矩阵，λ为特征值。通过求解这个方程，可以得到矩阵A的所有特征值。特征值的计算通常涉及到多项式的求根，可能会得到实数或复数解，具体取决于矩阵的性质。",
+    "什么是矩阵的逆？": "矩阵的逆是一个矩阵A的另一个矩阵B，使得AB = BA = I，其中I为单位矩阵。只有可逆矩阵才有逆矩阵。矩阵的逆在解决线性方程组、计算线性变换的反向操作等方面具有重要意义。计算矩阵的逆可以使用高斯消元法、伴随矩阵法或其他数值方法。",
+    "如何判断一个矩阵是否可逆？": "一个矩阵可逆的条件是其行列式不为零。如果行列式为零，则矩阵不可逆，意味着该矩阵的列向量或行向量线性相关。此外，矩阵的秩也可以用来判断可逆性：如果矩阵的秩等于其行数或列数，则该矩阵可逆。",
+    "什么是线性独立？": "一组向量线性独立是指没有任何一个向量可以表示为其他向量的线性组合。如果存在这样的关系，则这些向量线性相关。线性独立性是线性代数中的一个重要概念，涉及到向量空间的维度和基的定义。线性独立的向量组可以用来构成向量空间的基，而线性相关的向量组则不能。判断向量组是否线性独立的方法包括构造增广矩阵并使用高斯消元法，检查其秩是否等于向量组的个数。如果相等，则线性独立；否则线性相关。",
+    "如何判断向量组是否线性独立？": "可以通过构造增广矩阵并使用高斯消元法，检查其秩是否等于向量组的个数。如果增广矩阵的秩等于向量组的个数，则这些向量线性独立；如果秩小于向量组的个数，则这些向量线性相关。此外，还可以通过计算向量的行列式来判断：如果向量组的行列式不为零，则它们线性独立；如果为零，则线性相关。"
+}
+
+
+
+
+
+剩下的只需要准备数据即可，以上只是参考，
+您可以引用自己的数据，我提供的数据未必完全准确，仅供一种参考。
+
