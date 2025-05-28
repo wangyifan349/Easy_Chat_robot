@@ -1,0 +1,166 @@
+// ==UserScript==
+// @name         整句打码敏感词过滤（支持多标点拆句 + 多分类 + 实时监听）
+// @namespace    http://tampermonkey.net/
+// @version      1.0
+// @description  全句替换屏蔽包含敏感词的句子，支持中文标点（逗号句号问号等），动态内容实时过滤与统计分类次数。
+// @author       你自己
+// @match        *://*/*
+// @grant        none
+// @run-at       document-end
+// ==/UserScript==
+
+(function() {
+  'use strict';
+
+  // 1. 分类关键词及替换文本配置（你可自行扩展关键词）
+  const keywordCategories = {
+    politics: {
+      patterns: [
+***[政治内容已屏蔽]***
+      ],
+***[政治内容已屏蔽]***
+      replacedCount: 0
+    },
+    porn: {
+      patterns: [
+***[色情内容已屏蔽]***
+      ],
+***[色情内容已屏蔽]***
+      replacedCount: 0
+    },
+    unhealthy: {
+      patterns: [
+***[不健康内容已屏蔽]******[不健康内容已屏蔽]******[不健康内容已屏蔽]******[不健康内容已屏蔽]******[不健康内容已屏蔽]******[不健康内容已屏蔽]******[不健康内容已屏蔽]******[不健康内容已屏蔽]***
+      ],
+      replaceText: "***[不健康内容已屏蔽]***",
+      replacedCount: 0
+    }
+  };
+
+  // 2. 合并所有关键词进入一维数组，并建立关键词对应分类映射
+  const allKeywords = [];
+  const keywordToCategory = {};
+  for (const cat in keywordCategories) {
+    keywordCategories[cat].patterns.forEach(kw => {
+      const kwLower = kw.toLowerCase();
+      allKeywords.push(kwLower);
+      keywordToCategory[kwLower] = cat;
+    });
+  }
+
+  // 转换敏感词为小写，后文将基于全文小写匹配，避免大小写影响
+  // 这里的匹配逻辑用简单包含，后面会遍历关键词检测
+
+  // 3. 标点拆句正则，含中文逗号，句号，问号，感叹号，英文逗号，句号等
+  const punctuationSplitRegex = /([，,。.!！？?；;、])/;
+
+  // 4. 拆句函数，保留分隔符，返回完整句子数组
+  function splitTextKeepDelimiter(text) {
+    const parts = text.split(punctuationSplitRegex);
+    const result = [];
+    for (let i = 0; i < parts.length; i += 2) {
+      const sentence = parts[i] || "";
+      const delim = parts[i+1] || "";
+      result.push(sentence + delim);
+    }
+    return result;
+  }
+
+  // 5. 判断句子是否包含任何敏感关键词，返回匹配的分类数组(可能多个)
+  function getSentenceMatchingCategories(sentence) {
+    const sentenceLower = sentence.toLowerCase();
+
+    const matchedCategories = new Set();
+    for (const kw of allKeywords) {
+      if (sentenceLower.includes(kw)) {
+        matchedCategories.add(keywordToCategory[kw]);
+      }
+    }
+    return Array.from(matchedCategories);
+  }
+
+  // 6. 对句子整体替换为第一匹配分类对应的遮蔽文本
+  function maskSentence(sentence) {
+    const matchedCategories = getSentenceMatchingCategories(sentence);
+    if (matchedCategories.length === 0) {
+      return sentence; 
+    }
+    // 增加统计，多个类别全部计数
+    matchedCategories.forEach(cat => {
+      keywordCategories[cat].replacedCount++;
+    });
+
+    // 按需求用第一个匹配类别的文本替代全句
+    const firstCat = matchedCategories[0];
+    return keywordCategories[firstCat].replaceText;
+  }
+
+  // 7. 过滤文本节点内容：拆句->替换->重组
+  function filterTextNode(textNode) {
+    if (!textNode || !textNode.nodeValue) return;
+    const text = textNode.nodeValue;
+    const sentences = splitTextKeepDelimiter(text);
+
+    let changed = false;
+    const filtered = sentences.map(s => {
+      const masked = maskSentence(s);
+      if (masked !== s) changed = true;
+      return masked;
+    });
+
+    if (changed) {
+      textNode.nodeValue = filtered.join("");
+    }
+  }
+
+  // 8. 递归遍历DOM，跳过不宜处理的标签
+  function processNode(node) {
+    if (!node) return;
+    if (node.nodeType === Node.TEXT_NODE) {
+      filterTextNode(node);
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const skipTags = new Set(["SCRIPT","STYLE","TEXTAREA","INPUT","NOSCRIPT","IFRAME"]);
+      if (!skipTags.has(node.tagName)) {
+        for (const child of node.childNodes) {
+          processNode(child);
+        }
+      }
+    }
+  }
+
+  // 9. 显示计数统计，清晰输出到控制台
+  function showStats() {
+    console.clear();
+    let total = 0;
+    console.log("=== 敏感句子过滤统计 ===");
+    for (const cat in keywordCategories) {
+      const count = keywordCategories[cat].replacedCount;
+      total += count;
+      console.log(`【${cat}】共替换敏感句子：${count}句`);
+    }
+    if (total === 0) {
+      console.log("未检测到敏感内容。");
+    }
+    console.log("=======================");
+  }
+
+  // 10. 页面初始执行全文过滤
+  processNode(document.body);
+  showStats();
+
+  // 11. 监听动态DOM变更，实时过滤并统计
+  const observer = new MutationObserver(mutations => {
+    mutations.forEach(mutation => {
+      for (const node of mutation.addedNodes) {
+        processNode(node);
+      }
+    });
+    showStats();
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
+
+})();
