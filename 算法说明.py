@@ -1,3 +1,7 @@
+"""
+文字能深入传达知识，而图像和视频则以独特的魅力吸引我们。
+"""
+
 import numpy as np
 from collections import Counter
 import math
