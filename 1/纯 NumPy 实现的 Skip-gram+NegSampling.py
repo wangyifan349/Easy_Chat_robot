@@ -1,3 +1,13 @@
+"""
+pip install numpy faiss-cpu
+
+训练结束后对 W_in 做了 L2 规范化，Faiss 用内积即可等同余弦；
+支持中英文混合分词＋检索；
+可选 CPU/GPU Faiss；
+提供保存与重新加载功能。
+
+"""
+
 import re
 import numpy as np
 import random
