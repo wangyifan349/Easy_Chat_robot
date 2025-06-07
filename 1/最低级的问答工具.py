@@ -96,6 +96,20 @@ def answer_question(question: str, method: str = 'edit') -> str:
     answers = qa_dict.get(key, [])
     return random.choice(answers) if answers else "抱歉，我不清楚如何回答。"
 
-# ———— 使用示例 ————
-# print(answer_question("打印 Hello World", method='edit'))
-# print(answer_question("示例循环", method='lcs'))
+def main():
+    print("欢迎使用智能问答，输入“退出”或“exit”结束对话。")
+    method = 'lcs'  # 默认匹配方法，可根据需要改为 'lcs'
+    while True:
+        question = input("\n请输入你的问题：").strip()
+        if not question:
+            continue
+        # 支持中英文退出
+        if question.lower() in ('退出', 'exit', 'quit'):
+            print("再见！")
+            break
+        # 获取回答并打印
+        answer = answer_question(question, method=method)
+        print(f"回答：\n{answer}")
+
+
+main()
