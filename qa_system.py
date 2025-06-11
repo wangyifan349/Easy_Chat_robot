@@ -1,37 +1,33 @@
 # -*- coding: utf-8 -*-
 """
-Q&A System with Chinese Tokenization and Interactive Conversation (with Programming Support)
-
-This module implements a question-answering system with multiple matching algorithms:
-  - Edit Distance (using fuzzywuzzy's fuzz.ratio)
-  - Longest Common Subsequence (LCS)
-  - Cosine similarity based on TF-IDF vectorization
-
-A combined strategy is available to merge scores from all methods:
-  1. Normalize all similarity scores to the range [0, 100].
-  2. Calculate the weighted sum.
-  3. Return the answer of the candidate question with the highest composite score.
-
-Chinese tokenization is performed by jieba.
-Additionally, the system supports programming Q&A with properly formatted code block outputs.
+基于多种匹配算法的中文问答系统
+此模块实现了一个支持多种匹配算法的问答系统，包括：
+  - 编辑距离（使用 fuzzywuzzy 的 fuzz.ratio）
+  - 最长公共子序列（LCS）
+  - 基于 TF-IDF 向量化的余弦相似度
+并提供了一个加权融合的策略来合并所有方法的得分：
+  1. 将所有相似度得分归一化到 [0, 100] 的范围。
+  2. 计算加权总和。
+  3. 返回得分最高的前 k 个候选问题的答案。
+使用 jieba 进行中文分词。
+系统支持编程问答，能正确格式化代码块输出
 """
-
 # ----------------------
-# Import required libraries
+# 导入必要的库
 # ----------------------
 from fuzzywuzzy import fuzz
 from sklearn.feature_extraction.text import TfidfVectorizer
 import jieba
 
 # ----------------------
-# Define a Chinese tokenizer function using jieba
+# 定义使用 jieba 的中文分词函数
 # ----------------------
 def chinese_tokenizer(text):
-    """Tokenize Chinese text using jieba."""
-    return list(jieba.cut(text))
+    """使用 jieba 对中文文本进行分词。"""
+    return jieba.lcut(text)
 
 # ----------------------
-# Define the knowledge base: question-answer pairs
+# 定义知识库：问答对
 # ----------------------
 qa_pairs = [
     {"question": "今天天气怎么样？", "answer": "今天天气晴朗，适合外出。"},
@@ -39,220 +35,215 @@ qa_pairs = [
     {"question": "如何使用Python进行数据分析？", "answer": "可以使用Pandas、NumPy、Matplotlib等库进行数据分析。"},
     {"question": "中国的首都是哪里？", "answer": "中国的首都是北京。"},
     {"question": "Python能做什么？", "answer": "Python具有丰富的生态系统，可用于数据分析、机器学习、网络爬虫等。"},
-    # Programming related Q&A, 使用三引号的多行字符串保存代码块
-    {"question": "如何编写Python函数？", "answer": """You can define a Python function using the 'def' keyword. For example:
+    # 编程相关的问答，使用三引号的多行字符串保存代码块
+    {"question": "如何编写Python函数？", "answer": """你可以使用'def'关键词来定义一个Python函数。例如：
 
 ```python
 def my_function(param1, param2):
-    '''This function does something.'''
+    '''这个函数执行某些操作。'''
     result = param1 + param2
     return result
-```"""}
+```
+"""}
 ]
 
 # ----------------------
-# Extract all questions from the knowledge base
+# 从知识库中提取所有问题
 # ----------------------
-questions = [pair["question"] for pair in qa_pairs]
+questions = []
+for pair in qa_pairs:
+    questions.append(pair["question"])
 
 # ----------------------
-# Build the TF-IDF model with custom Chinese tokenization
+# 使用自定义的中文分词器构建 TF-IDF 模型
 # ----------------------
 vectorizer = TfidfVectorizer(tokenizer=chinese_tokenizer)
-tfidf_matrix = vectorizer.fit_transform(questions)
+vectorizer.fit(questions)
 
 # ----------------------
-# LCS (Longest Common Subsequence) Functions
+# 最长公共子序列（LCS）函数
 # ----------------------
 def compute_lcs_length(s1, s2):
     """
-    Compute the length of the longest common subsequence (LCS) between two strings.
-    
-    Parameters:
-        s1: First string.
-        s2: Second string.
-    
-    Returns:
-        Length of LCS.
+    计算两个字符串之间的最长公共子序列的长度。
+
+    参数：
+        s1: 第一个字符串。
+        s2: 第二个字符串。
+
+    返回：
+        LCS 的长度。
     """
     n = len(s1)
     m = len(s2)
-    dp = [[0] * (m + 1) for _ in range(n + 1)]
-    # Fill the DP table
-    for i in range(1, n + 1):
-        for j in range(1, m + 1):
-            if s1[i - 1] == s2[j - 1]:
-                dp[i][j] = dp[i - 1][j - 1] + 1
+    # 初始化 DP 表格，全为 0
+    dp = []
+    for _ in range(n + 1):
+        dp.append([0] * (m + 1))
+    # 填充 DP 表格
+    for i in range(n):
+        for j in range(m):
+            if s1[i] == s2[j]:
+                dp[i+1][j+1] = dp[i][j] +1
             else:
-                dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])
+                dp[i+1][j+1] = max(dp[i][j+1], dp[i+1][j])
     return dp[n][m]
 
 def lcs_ratio(s1, s2):
     """
-    Calculate the similarity percentage based on LCS:
+    基于 LCS 计算相似度百分比：
       ratio = (2 * LCS_length) / (len(s1) + len(s2)) * 100
-      
-    Parameters:
-        s1: First string.
-        s2: Second string.
-        
-    Returns:
-        Similarity percentage in the range [0, 100].
+    参数：
+        s1: 第一个字符串。
+        s2: 第二个字符串。
+    返回：
+        [0, 100] 范围内的相似度百分比。
     """
     if not s1 and not s2:
         return 100
     lcs_len = compute_lcs_length(s1, s2)
     ratio = (lcs_len * 2) / (len(s1) + len(s2)) * 100
     return ratio
-
 # ----------------------
-# TF-IDF Similarity Score Function
+# TF-IDF 相似度得分函数
 # ----------------------
 def tfidf_score(user_question, candidate_question):
     """
-    Calculate the cosine similarity between the TF-IDF vectors of the user question
-    and a candidate question.
-    
-    Parameters:
-        user_question: The user input question.
-        candidate_question: A candidate question from the knowledge base.
-        
-    Returns:
-        Cosine similarity multiplied by 100 (range [0, 100]).
+    计算用户问题和候选问题的 TF-IDF 向量之间的余弦相似度。
+    参数：
+        user_question: 用户输入的问题。
+        candidate_question: 知识库中的候选问题。
+
+    返回：
+        余弦相似度乘以 100（范围 [0, 100]）。
     """
     user_vec = vectorizer.transform([user_question])
     candidate_vec = vectorizer.transform([candidate_question])
     cosine_score = (user_vec * candidate_vec.T).toarray()[0][0]
     return cosine_score * 100
-
 # ----------------------
-# Combined Matching Strategy using All Methods
+# 使用所有方法的加权融合匹配策略
 # ----------------------
-def search_by_all_methods(user_question, threshold=50):
+def search_by_all_methods(user_question, threshold=50, top_k=1):
     """
-    Combine Edit Distance, LCS, and TF-IDF to compute a weighted total similarity score,
-    and return the index of the best candidate from the knowledge base.
-    
-    Parameters:
-        user_question: The user input question.
-        threshold: Minimum threshold to consider a candidate (range: 0-100).
-        
-    Returns:
-        Index of the best matching question.
+    结合编辑距离、LCS 和 TF-IDF 来计算加权总相似度得分，返回知识库中最匹配的前 k 个候选问题的索引。
+    参数：
+        user_question: 用户输入的问题。
+        threshold: 考虑候选项的最低阈值（范围：0-100）。
+        top_k: 返回最匹配的前 k 个结果。
+    返回：
+        最佳匹配问题的索引列表。
     """
-    # Weight settings for each method
-    weight_edit = 0.4    # Weight for Edit Distance
-    weight_lcs = 0.3     # Weight for LCS
-    weight_tfidf = 0.3   # Weight for TF-IDF
-
-    best_idx = -1
-    best_total_score = -1
-
-    for i, candidate in enumerate(questions):
-        score_edit = fuzz.ratio(user_question, candidate)  # Edit Distance score
-        score_lcs = lcs_ratio(user_question, candidate)      # LCS similarity score
-        score_tfidf = tfidf_score(user_question, candidate)  # TF-IDF cosine score
-
+    # 每种方法的权重设置
+    weight_edit = 0.4    # 编辑距离的权重
+    weight_lcs = 0.3     # LCS 的权重
+    weight_tfidf = 0.3   # TF-IDF 的权重
+    scores = []
+    for i in range(len(questions)):
+        candidate = questions[i]
+        score_edit = fuzz.ratio(user_question, candidate)      # 编辑距离得分
+        score_lcs = lcs_ratio(user_question, candidate)        # LCS 相似度得分
+        score_tfidf = tfidf_score(user_question, candidate)    # TF-IDF 余弦得分
         total_score = weight_edit * score_edit + weight_lcs * score_lcs + weight_tfidf * score_tfidf
-
-        if total_score >= threshold and total_score > best_total_score:
-            best_total_score = total_score
-            best_idx = i
-
-    # If no candidate meets the threshold, choose the one with the highest score.
-    if best_idx == -1:
-        for i, candidate in enumerate(questions):
+        if total_score >= threshold:
+            scores.append((i, total_score))
+    if not scores:
+        # 如果没有候选项满足阈值，则使用所有得分
+        for i in range(len(questions)):
+            candidate = questions[i]
             score_edit = fuzz.ratio(user_question, candidate)
             score_lcs = lcs_ratio(user_question, candidate)
             score_tfidf = tfidf_score(user_question, candidate)
             total_score = weight_edit * score_edit + weight_lcs * score_lcs + weight_tfidf * score_tfidf
-            if total_score > best_total_score:
-                best_total_score = total_score
-                best_idx = i
-
-    return best_idx
-
+            scores.append((i, total_score))
+    # 按得分从高到低排序
+    scores.sort(key=lambda x: x[1], reverse=True)
+    # 获取前 k 个候选项的索引
+    top_indices = []
+    for idx, score in scores[:top_k]:
+        top_indices.append(idx)
+    return top_indices
 # ----------------------
-# Function to Retrieve the Best Answer
+# 获取最佳答案的函数
 # ----------------------
-def get_best_answer(user_question, method="tfidf", threshold=50):
+def get_best_answers(user_question, method="tfidf", threshold=50, top_k=1):
     """
-    Retrieve the best answer from the knowledge base by matching the user question
-    using the specified algorithm.
-    
-    Supported methods:
-      - "edit_distance": Use only Edit Distance for matching.
-      - "lcs": Use only Longest Common Subsequence for matching.
-      - "tfidf": Use only TF-IDF cosine similarity for matching.
-      - "all": Use a combined strategy merging all three methods.
-    
-    Parameters:
-        user_question: The user input question.
-        method: The matching algorithm to use (default is "tfidf").
-        threshold: Similarity threshold for single or combined strategies (range: 0-100).
-        
-    Returns:
-        The best matching answer as a string.
+    使用指定的算法匹配用户问题，从知识库中获取最佳答案。
+    支持的算法：
+      - "edit_distance": 仅使用编辑距离进行匹配。
+      - "lcs": 仅使用最长公共子序列进行匹配。
+      - "tfidf": 仅使用 TF-IDF 余弦相似度进行匹配。
+      - "all": 使用融合策略，合并所有三种方法。
+    参数：
+        user_question: 用户输入的问题。
+        method: 使用的匹配算法（默认是 "tfidf"）。
+        threshold: 单一或融合策略的相似度阈值（范围：0-100）。
+        top_k: 返回最匹配的前 k 个答案。
+    返回：
+        最佳匹配答案的列表。
     """
     if method == "edit_distance":
-        best_idx = -1
-        best_score = 0
-        for i, candidate in enumerate(questions):
+        scores = []
+        for i in range(len(questions)):
+            candidate = questions[i]
             score = fuzz.ratio(user_question, candidate)
-            if score >= threshold and score > best_score:
-                best_score = score
-                best_idx = i
-        if best_idx == -1:
-            for i, candidate in enumerate(questions):
+            if score >= threshold:
+                scores.append((i, score))
+        if not scores:
+            for i in range(len(questions)):
+                candidate = questions[i]
                 score = fuzz.ratio(user_question, candidate)
-                if score > best_score:
-                    best_score = score
-                    best_idx = i
-
+                scores.append((i, score))
+        scores.sort(key=lambda x: x[1], reverse=True)
+        top_indices = []
+        for idx, score in scores[:top_k]:
+            top_indices.append(idx)
     elif method == "lcs":
-        best_idx = -1
-        best_score = 0
-        for i, candidate in enumerate(questions):
+        scores = []
+        for i in range(len(questions)):
+            candidate = questions[i]
             score = lcs_ratio(user_question, candidate)
-            if score >= threshold and score > best_score:
-                best_score = score
-                best_idx = i
-        if best_idx == -1:
-            for i, candidate in enumerate(questions):
+            if score >= threshold:
+                scores.append((i, score))
+        if not scores:
+            for i in range(len(questions)):
+                candidate = questions[i]
                 score = lcs_ratio(user_question, candidate)
-                if score > best_score:
-                    best_score = score
-                    best_idx = i
-
+                scores.append((i, score))
+        scores.sort(key=lambda x: x[1], reverse=True)
+        top_indices = []
+        for idx, score in scores[:top_k]:
+            top_indices.append(idx)
     elif method == "tfidf":
-        best_idx = -1
-        best_score = -1
-        for i, candidate in enumerate(questions):
+        scores = []
+        for i in range(len(questions)):
+            candidate = questions[i]
             score = tfidf_score(user_question, candidate)
-            if score > best_score:
-                best_score = score
-                best_idx = i
-
+            scores.append((i, score))
+        scores.sort(key=lambda x: x[1], reverse=True)
+        top_indices = []
+        for idx, score in scores[:top_k]:
+            top_indices.append(idx)
     elif method == "all":
-        best_idx = search_by_all_methods(user_question, threshold=threshold)
-
+        top_indices = search_by_all_methods(user_question, threshold=threshold, top_k=top_k)
     else:
-        raise ValueError("Unsupported algorithm. Please choose: edit_distance, lcs, tfidf, or all")
-
-    return qa_pairs[best_idx]["answer"]
-
+        raise ValueError("不支持的算法。请选择：edit_distance、lcs、tfidf 或 all")
+    # 获取对应的答案
+    best_answers = []
+    for idx in top_indices:
+        best_answers.append(qa_pairs[idx]["answer"])
+    return best_answers
 # ----------------------
-# Interactive Conversation Loop with Programming Support
+# 带有编程支持的交互式对话循环
 # ----------------------
 def main():
-    print("Welcome to the Q&A System!")
-    print("Please choose the matching algorithm:")
-    print("  1 - Edit Distance (edit_distance)")
-    print("  2 - Longest Common Subsequence (lcs)")
-    print("  3 - TF-IDF + Cosine Similarity (tfidf)")
-    print("  4 - Combined Matching (all)")
-
-    mode_input = input("Enter the matching algorithm (number or name): ").strip()
+    print("欢迎使用问答系统！")
+    print("请选择匹配算法：")
+    print("  1 - 编辑距离 (edit_distance)")
+    print("  2 - 最长公共子序列 (lcs)")
+    print("  3 - TF-IDF + 余弦相似度 (tfidf)")
+    print("  4 - 加权融合匹配 (all)")
+    mode_input = input("请输入匹配算法的编号或名称：").strip()
     if mode_input in ["1", "edit_distance"]:
         method = "edit_distance"
     elif mode_input in ["2", "lcs"]:
@@ -262,25 +253,28 @@ def main():
     elif mode_input in ["4", "all"]:
         method = "all"
     else:
-        print("Invalid input. Defaulting to tfidf mode.")
+        print("输入无效，默认使用 tfidf 模式。")
         method = "tfidf"
-
-    print("Selected matching mode:", method)
-    print("Enter your question (type 'quit', 'exit', or '退出' to quit).")
-
+    top_k_input = input("请输入返回答案的数量（top k）：").strip()
+    if top_k_input.isdigit() and int(top_k_input) > 0:
+        top_k = int(top_k_input)
+    else:
+        print("输入无效，默认返回 1 个答案。")
+        top_k = 1
+    print("已选择匹配模式：", method)
+    print("请输入您的问题（输入 'quit'、'exit' 或 '退出' 结束程序）。")
     while True:
-        user_input = input("User: ").strip()
+        user_input = input("用户：").strip()
         if user_input.lower() in ["quit", "exit", "退出"]:
-            print("Thank you for using the system. Goodbye!")
+            print("感谢您的使用，再见！")
             break
 
-        # Support for programming Q&A:
-        if "python" in user_input.lower() or "def " in user_input or "代码" in user_input or "编程" in user_input or "```" in user_input:
-            answer = get_best_answer(user_input, method=method, threshold=50)
-        else:
-            answer = get_best_answer(user_input, method=method, threshold=50)
-
-        print("System:", answer)
+        # 获取最佳答案
+        answers = get_best_answers(user_input, method=method, threshold=50, top_k=top_k)
+        print("系统：")
+        for answer in answers:
+            print(answer)
+            print("-" * 50)
 
 if __name__ == "__main__":
     main()
