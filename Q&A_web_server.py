@@ -1,11 +1,5 @@
 # -*- coding: utf-8 -*-
 """
-Flask-based English QA system with multi-algorithm matching.
-Supports multi-line, correctly indented code blocks directly stored as multi-line strings.
-Frontend preserves indentation & line breaks via <pre> with monospace font.
-User input textarea supports multiline; Ctrl+Enter to send.
-Bootstrap4 responsive dark theme with red accent.
-"""
 
 from flask import Flask, request, jsonify, render_template_string
 import jieba
@@ -19,56 +13,144 @@ app = Flask(__name__)
 # No manual \n usage, direct multiline strings keep indentation naturally
 # ----------------------------
 qaPairs = [
+    # Programming
     {
         "question": "What is Python?",
-        "answer": """Python is a versatile programming language used for scripting,
-automation, data analysis, web development, and more."""
+        "answer": """Python is a high-level, general-purpose programming language known for its clear and readable syntax. It supports object-oriented, procedural, and functional programming paradigms, and comes with a rich standard library plus a vast third-party ecosystem. Python is widely used for scripting, automation, data analysis, machine learning, web development, scientific computing, and more."""
     },
     {
         "question": "How do I write a for loop in Python?",
-        "answer": """Here is a basic for loop example in Python:
-
-```python
+        "answer": """In Python, you use the for keyword together with the built-in range function to iterate over a sequence of integers. For example:
 for i in range(5):
     print(i)
-```"""
+This code will print 0, 1, 2, 3, 4 in sequence. You can also loop over any iterable (like lists, tuples, strings, dictionaries, etc.) using the same syntax."""
     },
     {
         "question": "What is a virtual environment?",
-        "answer": """A virtual environment is an isolated environment that allows you to
-manage dependencies for different Python projects separately.
-
-To create one:
-
-```bash
-python -m venv env
-source env/bin/activate  # On Linux/macOS
-env\\Scripts\\activate   # On Windows
-```"""
+        "answer": """A virtual environment is an isolated Python runtime environment that keeps dependencies required by different projects separate, preventing version conflicts. The typical workflow is:
+1. Create a new env folder: python -m venv env  
+2. Activate it:  
+   - On Linux/macOS: source env/bin/activate  
+   - On Windows: env\\Scripts\\activate  
+3. Install packages inside that env: pip install requests  
+4. When done, deactivate with: deactivate"""
     },
     {
         "question": "Explain list comprehensions in Python.",
-        "answer": """List comprehensions provide a concise way to create lists.
-
-Example:
-
-```python
-squares = [x**2 for x in range(10)]
-print(squares)
-```"""
+        "answer": """A list comprehension provides a concise way to create lists by embedding loops and optional conditionals in a single line. For example, to get the squares of numbers 0–9:
+squares = [x * x for x in range(10)]
+To include only even numbers:
+even_squares = [x * x for x in range(10) if x % 2 == 0]"""
     },
     {
-        "question": "How to handle exceptions in Python?",
-        "answer": """Use try-except blocks to handle exceptions:
+        "question": "What is a Python decorator?",
+        "answer": """A decorator is a higher-order function that takes another function as an argument and returns a new function, allowing you to add functionality to the original function without modifying its code. You apply a decorator with the @ syntax:
+def debug(fn):
+    def wrapped(*args, **kwargs):
+        print("Calling", fn.__name__)
+        return fn(*args, **kwargs)
+    return wrapped
 
-```python
-try:
-    risky_operation()
-except Exception as e:
-    print(f"Error occurred: {e}")
-```"""
+@debug
+def greet(name):
+    print("Hello", name)
+
+Calling greet("Alice") will first print “Calling greet” and then “Hello Alice”."""
+    },
+    {
+        "question": "How do I read a file in Python?",
+        "answer": """You typically use the built-in open function along with a with statement for proper resource management. For example:
+with open("data.txt", "r", encoding="utf-8") as f:
+    content = f.read()
+    print(content)
+
+The file is automatically closed when the with block ends. To read line by line:
+with open("data.txt", "r", encoding="utf-8") as f:
+    for line in f:
+        print(line, end="")"""
+    },
+    {
+        "question": "What is Git and how to clone a repository?",
+        "answer": """Git is a distributed version control system for tracking file changes and collaborating on code. To clone a remote repository locally, use:
+git clone https://github.com/username/repo.git
+This will create a folder named repo in your current directory and download all commits and files."""
+    },
+
+    # Data Science / Machine Learning
+    {
+        "question": "What is Pandas in Python?",
+        "answer": """Pandas is a powerful data manipulation and analysis library that provides the DataFrame object for working with tabular data. Common operations:
+import pandas as pd
+
+# Read from CSV
+df = pd.read_csv("data.csv")
+
+# View first 5 rows
+print(df.head())
+
+# Filter rows where age > 30
+df_filtered = df[df["age"] > 30]"""
+    },
+    {
+        "question": "How to train a simple linear regression model with scikit-learn?",
+        "answer": """Here’s the typical workflow with scikit-learn:
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, r2_score
+
+# 1. Split data
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# 2. Instantiate and train
+model = LinearRegression()
+model.fit(X_train, y_train)
+
+# 3. Predict and evaluate
+predictions = model.predict(X_test)
+mse = mean_squared_error(y_test, predictions)
+r2 = r2_score(y_test, predictions)
+
+print("MSE:", mse)
+print("R2 score:", r2)"""
+    },
+
+    # Physics
+    {
+        "question": "What is Newton's first law?",
+        "answer": """Newton’s First Law (the law of inertia) states that an object at rest stays at rest, and an object in uniform motion continues in uniform straight-line motion, unless acted upon by an external force. It implies that forces are needed to change motion, not to maintain it."""
+    },
+    {
+        "question": "Define kinetic energy.",
+        "answer": """Kinetic energy is the energy an object possesses due to its motion. It depends on the object’s mass and velocity, and is given by K = 1/2 * m * v^2, where m is mass and v is velocity. Because of the square relationship, small changes in speed create larger changes in energy."""
+    },
+    {
+        "question": "What is Ohm's law?",
+        "answer": """Ohm’s Law describes the relationship between voltage (V), current (I), and resistance (R) in a conductor:  
+V = I * R  
+where V is the voltage across the conductor, I is the current through it, and R is its resistance. This holds for many metallic conductors at constant temperature."""
+    },
+
+    # Biology
+    {
+        "question": "What is DNA?",
+        "answer": """Deoxyribonucleic acid (DNA) is the hereditary molecule that carries genetic information in living organisms. It consists of two complementary strands forming a double helix, with each strand made up of nucleotides containing one of four bases: adenine (A), thymine (T), cytosine (C), and guanine (G). DNA’s main functions are to store, replicate, and transmit genetic information."""
+    },
+    {
+        "question": "Explain photosynthesis.",
+        "answer": """Photosynthesis is the process by which green plants, algae, and some bacteria convert carbon dioxide and water into organic compounds (usually glucose) using light energy, releasing oxygen as a byproduct. The overall reaction is:  
+6 CO2 + 6 H2O + light energy → C6H12O6 + 6 O2  
+It consists of light-dependent reactions and the Calvin cycle (light-independent reactions), providing the primary energy source and oxygen for ecosystems."""
+    },
+    {
+        "question": "What are the main differences between prokaryotic and eukaryotic cells?",
+        "answer": """Key differences include:  
+1. Nucleus: Prokaryotes lack a membrane-bound nucleus; DNA is in the cytoplasm. Eukaryotes have a double-membrane nucleus.  
+2. Organelles: Prokaryotes have no membrane-bound organelles (only ribosomes). Eukaryotes possess mitochondria, ER, Golgi, etc.  
+3. Gene expression: In prokaryotes, transcription and translation occur simultaneously; in eukaryotes, transcription happens in the nucleus and mRNA is processed before being translated in the cytoplasm.  
+4. Size: Prokaryotes are typically 1–10 μm in diameter; eukaryotes range from 10–100 μm."""
     }
 ]
+
 
 # Extract questions list from QA pairs
 questions = []
