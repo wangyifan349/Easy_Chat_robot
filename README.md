@@ -55,3 +55,11 @@
 - 邮箱：wangyifan349@gmail.com
 
 感谢您使用本程序😊
+---
+## 请考虑通过以下方式赞助我们 🙏
+- **BNB**: `0x337de2632361cAF8BCE1976FB1F34d094D0C4e7B` 💰
+- **Zcash**: `t1N2RtMTgy897zfDo3suWhFEVNXwJnuMBnp` 🔒
+- **比特币 (Bitcoin)**: `bc1qjz0zagtjfk880ec3fdhutujakkz4lns9tfayu6` 🪙
+您的支持是我继续改进项目的动力！✨
+---
+
