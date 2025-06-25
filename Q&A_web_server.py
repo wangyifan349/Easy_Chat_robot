@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
-"""
+
 
 from flask import Flask, request, jsonify, render_template_string
 import jieba
 from fuzzywuzzy import fuzz
 from sklearn.feature_extraction.text import TfidfVectorizer
+import re
+import html
 
 app = Flask(__name__)
 
@@ -21,8 +23,10 @@ qaPairs = [
     {
         "question": "How do I write a for loop in Python?",
         "answer": """In Python, you use the for keyword together with the built-in range function to iterate over a sequence of integers. For example:
+```python
 for i in range(5):
     print(i)
+```
 This code will print 0, 1, 2, 3, 4 in sequence. You can also loop over any iterable (like lists, tuples, strings, dictionaries, etc.) using the same syntax."""
     },
     {
@@ -38,13 +42,18 @@ This code will print 0, 1, 2, 3, 4 in sequence. You can also loop over any itera
     {
         "question": "Explain list comprehensions in Python.",
         "answer": """A list comprehension provides a concise way to create lists by embedding loops and optional conditionals in a single line. For example, to get the squares of numbers 0–9:
+```python
 squares = [x * x for x in range(10)]
+```
 To include only even numbers:
-even_squares = [x * x for x in range(10) if x % 2 == 0]"""
+```python
+even_squares = [x * x for x in range(10) if x % 2 == 0]
+```"""
     },
     {
         "question": "What is a Python decorator?",
         "answer": """A decorator is a higher-order function that takes another function as an argument and returns a new function, allowing you to add functionality to the original function without modifying its code. You apply a decorator with the @ syntax:
+```python
 def debug(fn):
     def wrapped(*args, **kwargs):
         print("Calling", fn.__name__)
@@ -55,24 +64,30 @@ def debug(fn):
 def greet(name):
     print("Hello", name)
 
-Calling greet("Alice") will first print “Calling greet” and then “Hello Alice”."""
+Calling greet("Alice") will first print “Calling greet” and then “Hello Alice”.
+```"""
     },
     {
         "question": "How do I read a file in Python?",
         "answer": """You typically use the built-in open function along with a with statement for proper resource management. For example:
+```python
 with open("data.txt", "r", encoding="utf-8") as f:
     content = f.read()
     print(content)
-
+```
 The file is automatically closed when the with block ends. To read line by line:
+```python
 with open("data.txt", "r", encoding="utf-8") as f:
     for line in f:
-        print(line, end="")"""
+        print(line, end="")
+```"""
     },
     {
         "question": "What is Git and how to clone a repository?",
         "answer": """Git is a distributed version control system for tracking file changes and collaborating on code. To clone a remote repository locally, use:
+```bash
 git clone https://github.com/username/repo.git
+```
 This will create a folder named repo in your current directory and download all commits and files."""
     },
 
@@ -80,6 +95,7 @@ This will create a folder named repo in your current directory and download all 
     {
         "question": "What is Pandas in Python?",
         "answer": """Pandas is a powerful data manipulation and analysis library that provides the DataFrame object for working with tabular data. Common operations:
+```python
 import pandas as pd
 
 # Read from CSV
@@ -89,11 +105,13 @@ df = pd.read_csv("data.csv")
 print(df.head())
 
 # Filter rows where age > 30
-df_filtered = df[df["age"] > 30]"""
+df_filtered = df[df["age"] > 30]
+```"""
     },
     {
         "question": "How to train a simple linear regression model with scikit-learn?",
         "answer": """Here’s the typical workflow with scikit-learn:
+```python
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error, r2_score
@@ -111,7 +129,8 @@ mse = mean_squared_error(y_test, predictions)
 r2 = r2_score(y_test, predictions)
 
 print("MSE:", mse)
-print("R2 score:", r2)"""
+print("R2 score:", r2)
+```"""
     },
 
     # Physics
@@ -150,26 +169,27 @@ It consists of light-dependent reactions and the Calvin cycle (light-independent
 4. Size: Prokaryotes are typically 1–10 μm in diameter; eukaryotes range from 10–100 μm."""
     }
 ]
-
-
+# ----------------------------
 # Extract questions list from QA pairs
 questions = []
 for pair in qaPairs:
     questions.append(pair["question"])
-
 # ----------------------------
-# Jieba tokenizer for both Chinese/English inputs (English tokenizes roughly as characters/words)
+# Jieba tokenizer for both Chinese/English inputs (English tokenizes roughly as words)
 # ----------------------------
 def jiebaTokenizer(text):
-    tokens = jieba.cut(text)
-    return list(tokens)
-
+    # 判断是否包含中文字符
+    if re.search(r'[\u4e00-\u9fff]', text):
+        tokens = jieba.cut(text)
+        return list(tokens)
+    else:
+        # 英文简单空格分词
+        return text.split()
 # ----------------------------
 # Initialize and fit TF-IDF Vectorizer with jieba tokenizer
 # ----------------------------
-vectorizer = TfidfVectorizer(tokenizer=jiebaTokenizer)
+vectorizer = TfidfVectorizer(tokenizer=jiebaTokenizer, lowercase=True)
 tfidfMatrix = vectorizer.fit_transform(questions)
-
 # ----------------------------
 # Longest Common Subsequence (LCS) functions
 # ----------------------------
@@ -192,13 +212,11 @@ def computeLcsLength(s1, s2):
             j += 1
         i += 1
     return dp[n][m]
-
 def lcsRatio(s1, s2):
     if not s1 and not s2:
         return 100.0
     lcsLen = computeLcsLength(s1, s2)
     return (2.0 * lcsLen) / (len(s1) + len(s2)) * 100.0
-
 # ----------------------------
 # TF-IDF cosine similarity calculation
 # ----------------------------
@@ -207,7 +225,18 @@ def tfidfScore(userQuestion, candidateQuestion):
     v2 = vectorizer.transform([candidateQuestion])
     score = (v1 * v2.T).toarray()[0][0]
     return score * 100.0
-
+# ----------------------------
+# Format answer to convert ```code``` blocks into <pre><code> blocks with HTML escaping
+# ----------------------------
+def formatAnswerWithCodeBlocks(answer):
+    def repl(m):
+        code_content = m.group(1)
+        escaped_code = html.escape(code_content)
+        return f'<pre class="code-block"><code>{escaped_code}</code></pre>'
+    formatted = re.sub(r'```(?:\w*\n)?(.*?)```', repl, answer, flags=re.DOTALL)
+    # Replace single newlines with <br> inside non-code parts to preserve paragraph breaks
+    # But keep code blocks intact (already handled)
+    return formatted
 # ----------------------------
 # Search best matching answer with requested method
 # ----------------------------
@@ -216,7 +245,6 @@ def searchBestAnswer(userQuestion, method="tfidf"):
     index = 0
     while index < len(questions):
         candidate = questions[index]
-
         if method == "editDistance":
             score = fuzz.ratio(userQuestion, candidate)
         elif method == "lcs":
@@ -230,22 +258,20 @@ def searchBestAnswer(userQuestion, method="tfidf"):
             score = edScore * 0.4 + lcsScore * 0.3 + tfidfSc * 0.3
         else:
             score = tfidfScore(userQuestion, candidate)
-
         scoreList.append((index, score))
         index += 1
-
     scoreList.sort(key=lambda x: x[1], reverse=True)
     bestIndex, bestScore = scoreList[0]
-    answer = qaPairs[bestIndex]["answer"]
+    answer_raw = qaPairs[bestIndex]["answer"]
+    answer = formatAnswerWithCodeBlocks(answer_raw)
     return answer, round(bestScore, 2)
-
 # ----------------------------
 # Serve main page with bootstrap, dark theme and red font, multiline input, Ctrl+Enter to send
 # front-end preserves indentation and line breaks via <pre style="white-space: pre-wrap;">
 # ----------------------------
 @app.route("/")
 def index():
-    html = """
+    html_content = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -254,23 +280,28 @@ def index():
   <title>QA System - Dark Mode</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" rel="stylesheet" />
   <style>
-    body,html {
+    body, html {
       height: 100%;
       background-color: #121212 !important;
       color: #FF4444 !important;
       font-weight: 500;
+      padding: 1rem 3rem;
+      max-width: 1200px;
+      margin: 0 auto;
+      font-size: 1.1rem;
+      line-height: 1.5;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
     }
     #chatContainer {
+      max-width: 100%;
+      min-height: 70vh;
       background-color: #1E1E1E;
       border: 1px solid #FF4444;
-      border-radius: 0.5rem;
-      padding: 1rem;
-      height: 70vh;
+      border-radius: 0.75rem;
+      padding: 1.5rem;
       overflow-y: auto;
-      margin-bottom: 1rem;
-      max-width: 700px;
-      margin-left: auto;
-      margin-right: auto;
+      box-shadow: 0 0 15px rgba(255, 68, 68, 0.4);
+      margin-bottom: 1.5rem;
     }
     .chatBubble {
       max-width: 75%;
@@ -297,77 +328,84 @@ def index():
       text-align: left;
     }
     #inputArea {
-      max-width: 700px;
-      margin: auto;
-      margin-bottom: 2rem;
+      max-width: 100%;
+      margin: 1rem auto 2rem auto;
       display: flex;
-      padding: 0;
+      gap: 0.75rem;
     }
     #userInput {
       flex-grow: 1;
-      font-size: 1rem;
-      border-radius: 0.375rem;
-      border: 1.5px solid #FF4444;
+      min-height: 60px;
+      max-height: 150px;
+      font-size: 1.1rem;
+      border-radius: 0.5rem;
+      border: 2px solid #FF4444;
       background-color: #121212;
       color: #FF6666;
-      padding-left: 0.75rem;
-      padding-right: 0.75rem;
+      padding: 0.75rem 1rem;
+      font-family: Consolas, "Courier New", monospace;
       resize: vertical;
-      min-height: 40px;
-      max-height: 100px;
       outline: none;
     }
     #sendButton {
-      margin-left: 0.75rem;
       background-color: #FF4444;
       color: #121212;
       border: none;
-      border-radius: 0.375rem;
-      font-weight: 600;
-      width: 100px;
+      border-radius: 0.5rem;
+      font-weight: 700;
+      font-size: 1.1rem;
+      padding: 0 1.25rem;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
     }
     #sendButton:hover {
       background-color: #FF6666;
-      color: #121212;
     }
     #algoSelect {
-      margin-left: 0.75rem;
-      max-width: 180px;
-      border-radius: 0.375rem;
-      border: 1.5px solid #FF4444;
+      border-radius: 0.5rem;
+      border: 2px solid #FF4444;
       background-color: #121212;
       color: #FF6666;
-      font-weight: 500;
-      padding: 0.375rem 0.75rem;
-      font-size: 1rem;
+      font-weight: 600;
+      font-size: 1.1rem;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
     }
     #chatContainer::-webkit-scrollbar {
-      width: 8px;
+      width: 6px;
     }
     #chatContainer::-webkit-scrollbar-thumb {
       background-color: #FF4444;
-      border-radius: 4px;
+      border-radius: 3px;
     }
     #chatContainer::-webkit-scrollbar-track {
       background-color: #1E1E1E;
     }
-    @media (max-width: 576px) {
-      #chatContainer {
-        height: 60vh;
-        max-width: 95vw;
+    pre.code-block {
+      background-color: #2D2D2D;
+      color: #FF6666;
+      padding: 1rem 1.25rem;
+      border-radius: 0.5rem;
+      overflow-x: auto;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.95rem;
+      line-height: 1.4;
+      margin: 0.75rem 0;
+      box-shadow: inset 0 0 10px rgba(255, 68, 68, 0.3);
+      white-space: pre;
+    }
+    @media (max-width: 768px) {
+      body, html {
+        padding: 1rem 1.5rem;
       }
       #inputArea {
         flex-direction: column;
       }
       #sendButton, #algoSelect {
         width: 100%;
-        margin: 0.5rem 0 0 0;
       }
       #algoSelect {
-        margin-left: 0;
-      }
-      #userInput {
-        margin-bottom: 0.5rem;
+        margin-top: 0.5rem;
       }
     }
   </style>
@@ -389,25 +427,30 @@ def index():
 
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script>
-    // Append message, use <pre> to preserve formatting
+    // Append message, system messages allow HTML (code blocks), user messages escape text
     function appendMessage(msg, sender, similarity){
       let bubbleDiv = document.createElement("div");
       bubbleDiv.classList.add("chatBubble");
       bubbleDiv.classList.add(sender === "user" ? "userMsg" : "systemMsg");
 
-      let pre = document.createElement("pre");
-      pre.style.whiteSpace = "pre-wrap";
-      pre.textContent = msg; // safe & preserves indentation & line breaks
+      if(sender === "system"){
+        // Insert HTML safely (backend already escaped code blocks)
+        bubbleDiv.innerHTML = msg;
 
-      bubbleDiv.appendChild(pre);
-
-      if(sender === "system" && similarity !== undefined){
-        let simDiv = document.createElement("div");
-        simDiv.style.fontSize = "0.85rem";
-        simDiv.style.marginTop = "4px";
-        simDiv.style.color = "#FFAAAA";
-        simDiv.textContent = `(Similarity: ${similarity}%)`;
-        bubbleDiv.appendChild(simDiv);
+        if(similarity !== undefined){
+          let simDiv = document.createElement("div");
+          simDiv.style.fontSize = "0.85rem";
+          simDiv.style.marginTop = "4px";
+          simDiv.style.color = "#FFAAAA";
+          simDiv.textContent = `(Similarity: ${similarity}%)`;
+          bubbleDiv.appendChild(simDiv);
+        }
+      } else {
+        // User message: escape text, preserve line breaks
+        let pre = document.createElement("pre");
+        pre.style.whiteSpace = "pre-wrap";
+        pre.textContent = msg;
+        bubbleDiv.appendChild(pre);
       }
 
       let chatContainer = document.getElementById("chatContainer");
@@ -461,8 +504,7 @@ def index():
 </body>
 </html>
 """
-    return render_template_string(html)
-
+    return render_template_string(html_content)
 # ----------------------------
 # /ask API: JSON POST returns answer and similarity score
 # ----------------------------
@@ -471,20 +513,15 @@ def apiAsk():
     reqData = request.get_json()
     if not reqData:
         return jsonify({"error": "Empty request body"}), 400
-
     userQuestion = reqData.get("question", "").strip()
     algoMethod = reqData.get("method", "tfidf").strip()
-
     if userQuestion == "":
         return jsonify({"error": "Question is required"}), 400
-
     allowedMethods = {"editDistance", "lcs", "tfidf", "fusion"}
     if algoMethod not in allowedMethods:
         algoMethod = "tfidf"
-
     answer, similarity = searchBestAnswer(userQuestion, method=algoMethod)
     return jsonify({"answer": answer, "similarity": similarity})
-
 # ----------------------------
 # Run Flask app
 # ----------------------------
