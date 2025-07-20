@@ -1,428 +1,279 @@
-# -*- coding: utf-8 -*-
-"""
-# 导入所需的库和模块
-from flask import Flask, request, jsonify, render_template_string
-import jieba
-import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-# 创建 Flask 应用
-app = Flask(__name__)
-# 示例问答知识库（部分答案包含换行和缩进）
-qa_pairs = [
-    {"question": "今天天气怎么样？", "answer": "今天天气晴朗，适合外出。"},
-    {"question": "你叫什么名字？", "answer": "我是一个智能问答系统。"},
-    {"question": "如何使用Python进行数据分析？", 
-     "answer": "可以使用Pandas、NumPy、Matplotlib等库进行数据分析。\n例如：\n    import pandas as pd\n    import numpy as np"},
-    {"question": "中国的首都是哪里？", "answer": "中国的首都是北京。"},
-    {"question": "Python能做什么？", "answer": "Python具有丰富的生态系统，可用于数据分析、机器学习、网络爬虫等。"}
-]
-
-# 将知识库中的问题提取到一个列表中
-questions = []
-for pair in qa_pairs:
-    questions.append(pair["question"])
-
-# 使用 jieba 分词函数，对文本进行分词处理
-def jieba_tokenizer(text):
-    segments = jieba.cut(text)
-    tokens = []
-    for token in segments:
-        tokens.append(token)
-    return tokens
-
-# 创建 TF-IDF 模型，并设置 tokenizer 使用 jieba_tokenizer
-vectorizer = TfidfVectorizer(tokenizer=jieba_tokenizer)
-tfidf_matrix = vectorizer.fit_transform(questions)
-
-# 根据 TF-IDF 相似度搜索最佳匹配问题的索引
-def search_by_tfidf(user_question):
-    # 将用户输入的问题转换为向量
-    user_vec = vectorizer.transform([user_question])
-    # 计算用户问题与知识库中每个问题的相似度
-    similarity_array = (tfidf_matrix * user_vec.T).toarray().ravel()
-    best_index = 0  # 初始化最佳索引为 0
-    best_score = similarity_array[0]  # 初始化最佳得分
-    i = 1
-    # 遍历所有相似度得分，找到最大的得分对应的索引
-    while i < len(similarity_array):
-        if similarity_array[i] > best_score:
-            best_score = similarity_array[i]
-            best_index = i
-        i = i + 1
-    return best_index
-
-# 根据用户输入的问题返回最佳答案
-def get_best_answer(user_question):
-    best_index = search_by_tfidf(user_question)  # 根据 TF-IDF 搜索最佳匹配索引
-    best_answer = qa_pairs[best_index]["answer"]  # 获取最佳匹配问题的答案
-    return best_answer
-
-# 定义处理 /ask 路由的 POST 请求
-@app.route("/ask", methods=["POST"])
-def ask():
-    data = request.get_json()  # 从请求中获取 JSON 数据
-    user_question = data.get("question", "")  # 获取用户问题
-    if user_question == "":
-        return jsonify({"error": "请输入问题"}), 400  # 若问题为空，返回错误信息
-    best_answer = get_best_answer(user_question)  # 获取最佳答案
-    return jsonify({"answer": best_answer})  # 以 JSON 格式返回答案
-
-# 定义处理根路径 "/" 的 GET 请求，返回网页内容
-@app.route("/")
-def index():
-    # 定义网页 HTML 内容，包含基本的聊天式界面
-    page_html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <title>在线问答 - 聊天式界面</title>
-      <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
-      <style type="text/css">
-        body {
-          background-color: #f5f5f5;
-        }
-        .chat-container {
-          max-width: 600px;
-          margin: 50px auto;
-          background-color: #ffffff;
-          border: 1px solid #dddddd;
-          border-radius: 5px;
-          padding: 15px;
-          height: 500px;
-          overflow-y: auto;
-        }
-        .chat-bubble {
-          padding: 10px 15px;
-          border-radius: 15px;
-          margin-bottom: 10px;
-          max-width: 80%;
-          clear: both;
-          white-space: pre-wrap;
-        }
-        .user-msg {
-          background-color: #dcf8c6;
-          float: right;
-          text-align: right;
-        }
-        .system-msg {
-          background-color: #f1f0f0;
-          float: left;
-          text-align: left;
-        }
-        .input-area {
-          position: fixed;
-          bottom: 0;
-          width: 100%;
-          background: #ffffff;
-          padding: 10px 0;
-          border-top: 1px solid #dddddd;
-        }
-        .input-box {
-          max-width: 600px;
-          margin: 0 auto;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="chat-container" id="chatContainer">
-      </div>
-      <div class="input-area">
-        <div class="input-box container">
-          <div class="input-group">
-            <input type="text" class="form-control" id="questionInput" placeholder="请输入问题">
-            <div class="input-group-append">
-              <button class="btn btn-primary" id="sendBtn" type="button">发送</button>
-            </div>
-          </div>
-        </div>
-      </div>
-      <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
-      <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
-      <script type="text/javascript">
-        // 在页面中添加消息的函数，根据消息类型添加不同样式
-        function appendMessage(message, type) {
-          var bubbleClass = "";
-          if (type === "user") {
-            bubbleClass = "user-msg";
-          } else {
-            bubbleClass = "system-msg";
-          }
-          var bubble = $("<div></div>");
-          bubble.addClass("chat-bubble");
-          bubble.addClass(bubbleClass);
-          bubble.text(message);
-          $("#chatContainer").append(bubble);
-          $("#chatContainer").scrollTop($("#chatContainer")[0].scrollHeight);
-        }
-        // 文档加载完成后的事件绑定
-        $(document).ready(function(){
-          // 绑定发送按钮点击事件
-          $("#sendBtn").click(function(){
-            var question = $("#questionInput").val().trim();
-            if (question === "") {
-              return;
-            }
-            appendMessage(question, "user");  // 添加用户消息到聊天框
-            $("#questionInput").val("");  // 清空输入框
-            // 通过 Ajax 发送 POST 请求给服务端 /ask 接口
-            $.ajax({
-              url: "/ask",
-              type: "POST",
-              contentType: "application/json",
-              data: JSON.stringify({question: question}),
-              success: function(response) {
-                appendMessage(response.answer, "system");  // 显示系统返回的答案
-              },
-              error: function(error) {
-                appendMessage("请求出错，请稍后再试。", "system");  // 显示错误信息
-                console.log("错误信息：", error);
-              }
-            });
-          });
-          // 绑定键盘回车事件，按回车发送消息
-          $("#questionInput").keypress(function(event){
-            if(event.which === 13) {
-              $("#sendBtn").click();
-              return false;
-            }
-          });
-        });
-      </script>
-    </body>
-    </html>
-    """
-    # 使用 Flask 的 render_template_string 渲染 HTML 页面
-    return render_template_string(page_html)
-
-# 主程序入口，启动 Flask 应用
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
-
-
-"""
-# -*- coding: utf-8 -*-
-
-# 导入所需的库和模块
-from flask import Flask, request, jsonify, render_template_string
-import jieba
-import numpy as np
-import torch
+from  flask import Flask, request, jsonify, render_template_string
 from sentence_transformers import SentenceTransformer
+import numpy as np
 import json
 import os
 
-# 创建 Flask 应用
 app = Flask(__name__)
 
-# 从JSON文件加载问答对
 def load_qa_pairs():
-    if os.path.exists('qa_pairs.json'):
-        with open('qa_pairs.json', 'r', encoding='utf-8') as f:
-            qa_pairs = json.load(f)
+    # 也可以从 qa_pairs.json 文件加载多行字符串问答
+    if os.path.exists("qa_pairs.json"):
+        with open("qa_pairs.json", encoding="utf-8") as f:
+            return json.load(f)
     else:
-        # 如果JSON文件不存在，使用默认问答对
-        qa_pairs = [
-            {"question": "今天天气怎么样？", "answer": "今天天气晴朗，适合外出。"},
-            {"question": "你叫什么名字？", "answer": "我是一个智能问答系统。"},
-            {"question": "如何使用Python进行数据分析？",
-             "answer": "可以使用Pandas、NumPy、Matplotlib等库进行数据分析。\n例如：\n    import pandas as pd\n    import numpy as np"},
-            {"question": "中国的首都是哪里？", "answer": "中国的首都是北京。"},
-            {"question": "Python能做什么？", "answer": "Python具有丰富的生态系统，可用于数据分析、机器学习、网络爬虫等。"}
+        return [
+            {
+                "question": "如何用Python打印一段代码？",
+                "answer": """你可以这样写：
+
+```python
+print("Hello, World!")
+```
+
+这段代码会输出一行文本。
+"""
+            },
+            {
+                "question": "今天天气怎么样？",
+                "answer": "今天阳光明媚，适合出去散步。"
+            }
         ]
-    return qa_pairs
 
 qa_pairs = load_qa_pairs()
+questions = [q['question'] for q in qa_pairs]
 
-# 将知识库中的问题提取到一个列表中
-questions = [pair["question"] for pair in qa_pairs]
-
-# 加载预训练的中文Sentence-BERT模型
 model = SentenceTransformer('uer/sbert-base-chinese-nli')
+question_embeddings = model.encode(questions, convert_to_numpy=True)
 
-# 对知识库中的问题进行编码
-question_embeddings = model.encode(questions)
-
-# 定义函数计算相似度
 def search_by_embedding(user_question):
-    # 对用户的问题进行编码
-    user_embedding = model.encode([user_question])[0]
-    # 计算余弦相似度
-    similarity_array = np.dot(question_embeddings, user_embedding) / (
-        np.linalg.norm(question_embeddings, axis=1) * np.linalg.norm(user_embedding))
-    # 找到最大相似度的索引
-    best_index = np.argmax(similarity_array)
-    best_score = similarity_array[best_index]
-    return best_index, best_score
+    user_emb = model.encode([user_question], convert_to_numpy=True)[0]
+    user_norm = np.linalg.norm(user_emb)
+    norms = np.linalg.norm(question_embeddings, axis=1)
+    similarities = np.dot(question_embeddings, user_emb) / (norms * user_norm + 1e-10)
+    best_idx = np.argmax(similarities)
+    best_score = similarities[best_idx]
+    return best_idx, best_score
 
-# 根据用户输入的问题返回最佳答案
-def get_best_answer(user_question):
-    best_index, best_score = search_by_embedding(user_question)
-    if best_score < 0.5:  # 相似度阈值，可根据实际情况调整
-        return "抱歉，我无法理解您的问题，请您尝试换种方式提问。"
-    best_answer = qa_pairs[best_index]["answer"]
-    return best_answer
-
-# 定义处理 /ask 路由的 POST 请求
 @app.route("/ask", methods=["POST"])
 def ask():
-    data = request.get_json()  # 从请求中获取 JSON 数据
-    user_question = data.get("question", "")  # 获取用户问题
-    if user_question == "":
-        return jsonify({"error": "请输入问题"}), 400  # 若问题为空，返回错误信息
-    best_answer = get_best_answer(user_question)  # 获取最佳答案
-    return jsonify({"answer": best_answer})  # 以 JSON 格式返回答案
+    data = request.get_json()
+    user_question = data.get("question", "").strip()
+    if not user_question:
+        return jsonify({"error": "请输入问题"}), 400
+    best_idx, best_score = search_by_embedding(user_question)
+    threshold = 0.5
+    if best_score < threshold:
+        answer = "抱歉，我无法理解您的问题，请尝试换个说法。"
+    else:
+        answer = qa_pairs[best_idx]["answer"]
+    return jsonify({"answer": answer})
 
-# 定义处理根路径 "/" 的 GET 请求，返回网页内容
 @app.route("/")
 def index():
-    # 定义网页 HTML 内容，包含基本的聊天式界面
+    # 用 marked.js 前端渲染 markdown，配合 highlight.js 做代码高亮
     page_html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <title>在线问答 - 聊天式界面</title>
-      <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
-      <style type="text/css">
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <title>在线问答机器人</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/css/bootstrap.min.css" />
+    <!-- highlight.js 样式 -->
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/default.min.css">
+    <style>
         body {
-          background-color: #f5f5f5;
+            background: #f6f8fa;
+            font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+            padding-bottom: 80px; /* 底部输入框留空 */
         }
         .chat-container {
-          max-width: 600px;
-          margin: 50px auto;
-          background-color: #ffffff;
-          border: 1px solid #dddddd;
-          border-radius: 5px;
-          padding: 15px;
-          height: 500px;
-          overflow-y: auto;
+            max-width: 700px;
+            margin: 30px auto;
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            height: 500px;
+            overflow-y: auto;
+            box-shadow: 0 2px 9px rgba(0,0,0,0.1);
         }
         .chat-bubble {
-          padding: 10px 15px;
-          border-radius: 15px;
-          margin-bottom: 10px;
-          max-width: 80%;
-          clear: both;
-          white-space: pre-wrap;
-          position: relative;
+            padding: 12px 18px;
+            border-radius: 20px;
+            margin-bottom: 12px;
+            max-width: 80%;
+            position: relative;
+            font-size: 15px;
+            line-height: 1.5;
+            white-space: pre-wrap; /* 保留换行和空格 */
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            word-wrap: break-word;
         }
         .user-msg {
-          background-color: #dcf8c6;
-          float: right;
-          text-align: right;
+            background: #dcf8c6;
+            float: right;
+            text-align: right;
+            border-bottom-right-radius: 4px;
+            animation: fadeInRight 0.3s ease;
         }
         .system-msg {
-          background-color: #f1f0f0;
-          float: left;
-          text-align: left;
+            background: #f1f0f0;
+            float: left;
+            border-bottom-left-radius: 4px;
+            animation: fadeInLeft 0.3s ease;
         }
         .timestamp {
-          font-size: 10px;
-          color: #999;
-          position: absolute;
-          bottom: -15px;
-          right: 15px;
+            font-size: 10px;
+            color: #999;
+            position: absolute;
+            bottom: -16px;
+            right: 15px;
+            user-select: none;
         }
         .input-area {
-          position: fixed;
-          bottom: 0;
-          width: 100%;
-          background: #ffffff;
-          padding: 10px 0;
-          border-top: 1px solid #dddddd;
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            background: #fff;
+            border-top: 1px solid #ddd;
+            padding: 12px 0;
+            box-shadow: 0 -2px 5px rgba(0,0,0,0.05);
+            z-index: 100;
         }
         .input-box {
-          max-width: 600px;
-          margin: 0 auto;
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 0 15px;
         }
-      </style>
-    </head>
-    <body>
-      <div class="chat-container" id="chatContainer">
-      </div>
-      <div class="input-area">
+        #questionInput {
+            font-size: 16px;
+            height: 40px;
+            border-radius: 30px !important;
+            padding-left: 20px;
+            box-shadow: none !important;
+        }
+        #sendBtn {
+            border-radius: 30px !important;
+            min-width: 80px;
+            font-weight: 600;
+        }
+        @keyframes fadeInRight {
+            from {opacity: 0; transform: translateX(40px);}
+            to {opacity: 1; transform: translateX(0);}
+        }
+        @keyframes fadeInLeft {
+            from {opacity: 0; transform: translateX(-40px);}
+            to {opacity: 1; transform: translateX(0);}
+        }
+        /* 清除浮动 */
+        .clearfix::after {
+            content: "";
+            clear: both;
+            display: table;
+        }
+        /* highlight.js 代码块美化 */
+        pre {
+            background: #282c34;
+            color: #abb2bf;
+            padding: 12px 15px;
+            border-radius: 8px;
+            font-size: 13px;
+            overflow-x: auto;
+        }
+        code {
+            font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container" id="chatContainer" aria-live="polite" aria-atomic="false"></div>
+    
+    <div class="input-area">
         <div class="input-box container">
-          <div class="input-group">
-            <input type="text" class="form-control" id="questionInput" placeholder="请输入问题" autocomplete="off">
-            <div class="input-group-append">
-              <button class="btn btn-primary" id="sendBtn" type="button">发送</button>
+            <div class="input-group">
+                <input type="text" class="form-control" placeholder="请输入问题" id="questionInput" aria-label="请输入您的问题" autocomplete="off" />
+                <div class="input-group-append">
+                    <button class="btn btn-primary" id="sendBtn" aria-label="发送消息">发送</button>
+                </div>
             </div>
-          </div>
         </div>
-      </div>
-      <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
-      <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
-      <script type="text/javascript">
-        // 在页面中添加消息的函数，根据消息类型添加不同样式
-        function appendMessage(message, type) {
-          var bubbleClass = "";
-          if (type === "user") {
-            bubbleClass = "user-msg";
-          } else {
-            bubbleClass = "system-msg";
-          }
-          var bubble = $("<div></div>");
-          bubble.addClass("chat-bubble");
-          bubble.addClass(bubbleClass);
-          var messageText = $("<span></span>").addClass("message-text").text(message);
-          var timestamp = $("<span></span>").addClass("timestamp").text(getCurrentTime());
-          bubble.append(messageText);
-          bubble.append(timestamp);
-          $("#chatContainer").append(bubble);
-          $("#chatContainer").scrollTop($("#chatContainer")[0].scrollHeight);
-        }
-        // 获取当前时间，格式为 HH:MM
-        function getCurrentTime() {
-          var now = new Date();
-          var hours = now.getHours();
-          var minutes = now.getMinutes();
-          if (minutes < 10) {
-            minutes = '0' + minutes;
-          }
-          return hours + ':' + minutes;
-        }
-        // 文档加载完成后的事件绑定
-        $(document).ready(function(){
-          // 绑定发送按钮点击事件
-          $("#sendBtn").click(function(){
-            var question = $("#questionInput").val().trim();
-            if (question === "") {
-              return;
+    </div>
+
+    <!-- 引入 marked.js 用于 markdown 转 HTML -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- 引入 highlight.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        // 高亮 markdown 中代码块
+        marked.setOptions({
+            highlight: function(code, lang) {
+                if (lang && hljs.getLanguage(lang)) {
+                  return hljs.highlight(code, {language: lang}).value;
+                }
+                return hljs.highlightAuto(code).value;
             }
-            appendMessage(question, "user");  // 添加用户消息到聊天框
-            $("#questionInput").val("");  // 清空输入框
-            // 通过 Ajax 发送 POST 请求给服务端 /ask 接口
-            $.ajax({
-              url: "/ask",
-              type: "POST",
-              contentType: "application/json",
-              data: JSON.stringify({question: question}),
-              success: function(response) {
-                appendMessage(response.answer, "system");  // 显示系统返回的答案
-              },
-              error: function(error) {
-                appendMessage("请求出错，请稍后再试。", "system");  // 显示错误信息
-                console.log("错误信息：", error);
-              }
-            });
-          });
-          // 绑定键盘回车事件，按回车发送消息
-          $("#questionInput").keypress(function(event){
-            if(event.which === 13) {
-              $("#sendBtn").click();
-              return false;
-            }
-          });
         });
-      </script>
-    </body>
-    </html>
+
+        function appendMessage(text, role) {
+            var container = document.getElementById("chatContainer");
+            // 消息外层div
+            var bubble = document.createElement("div");
+            bubble.classList.add("chat-bubble", role === "user" ? "user-msg" : "system-msg", "clearfix");
+
+            if(role === "user") {
+                // 用户消息直接转义避免 XSS
+                bubble.textContent = text;
+            } else {
+                // 系统消息以 markdown 渲染
+                bubble.innerHTML = marked.parse(text);
+            }
+
+            // 时间戳
+            var timestamp = document.createElement("span");
+            timestamp.className = "timestamp";
+            timestamp.textContent = getCurrentTime();
+            bubble.appendChild(timestamp);
+
+            container.appendChild(bubble);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function getCurrentTime() {
+            var d = new Date();
+            var h = d.getHours();
+            var m = d.getMinutes();
+            return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m;
+        }
+
+        function sendMessage() {
+            var input = document.getElementById("questionInput");
+            var question = input.value.trim();
+            if(question === "") return;
+            appendMessage(question, "user");
+            input.value = "";
+            input.focus();
+
+            fetch("/ask", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({question: question})
+            }).then(res => res.json())
+            .then(data => {
+                if(data.error){
+                    appendMessage("发生错误：" + data.error, "system");
+                } else {
+                    appendMessage(data.answer, "system");
+                }
+            })
+            .catch(err => {
+                appendMessage("请求失败，请稍后再试。", "system");
+                console.error(err);
+            });
+        }
+
+        document.getElementById("sendBtn").addEventListener("click", sendMessage);
+        document.getElementById("questionInput").addEventListener("keypress", function(e){
+            if(e.key === "Enter") {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>
     """
-    # 使用 Flask 的 render_template_string 渲染 HTML 页面
     return render_template_string(page_html)
 
-# 主程序入口，启动 Flask 应用
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
-
