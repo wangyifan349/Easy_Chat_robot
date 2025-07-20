@@ -1,6 +1,7 @@
-from sentence_transformers import SentenceTransformer, util
-import torch
 import json
+import numpy as np
+import faiss
+from sentence_transformers import SentenceTransformer, util
 
 # 1. 构造问答对字典
 qa_dict = {
@@ -22,51 +23,47 @@ def l2_distance(vec1, vec2):
 余弦相似度值域为[-1,1]，表示两个向量的方向相似程度。"""
     ),
     "高血压是什么？": (
-        """高血压（Hypertension）是指动脉血压持续升高的一种慢性非传染性疾病。根据最新的诊断标准，
-收缩压≥140 mmHg和/或舒张压≥90 mmHg，或正在服用降压药物的患者可诊断为高血压。
-高血压是心血管疾病的重要风险因素，长期血压升高可导致心脏病、脑卒中、肾衰竭等器官损害。
-高血压分为原发性（约占90%-95%，病因复杂且不明）和继发性（由肾脏疾病、内分泌疾病等引起）。
-多数患者早期无明显临床表现，被称为“无声杀手”，部分患者可能出现头痛、头晕、心悸等症状。
-治疗包括生活方式干预（低盐饮食、减重、戒烟、运动）、药物治疗（钙通道阻滞剂、ACE抑制剂、利尿剂等），
-目标在于有效控制血压，预防心脑肾等并发症。患者需定期监测血压，遵医嘱用药，保持长期管理。"""
+        """高血压（Hypertension）是指动脉血压持续升高的一种慢性非传染性疾病…"""
     ),
-    # … 在这里继续添加其他问答对 …
+    # … 在这里继续添加其它问答对 …
 }
 
 # 2. 加载 Sentence-BERT 多语言模型
 model_name = 'paraphrase-multilingual-mpnet-base-v2'
 model = SentenceTransformer(model_name)
 
-# 3. 预先计算标准问题的 embeddings
+# 3. 准备标准问题向量，并做 L2 归一化
 questions = list(qa_dict.keys())
-question_embeddings = model.encode(questions, convert_to_tensor=True)
+question_embs = model.encode(questions, convert_to_tensor=False, normalize_embeddings=True)  # normalize_embeddings=True 会自动 L2 归一化
+question_embs = np.array(question_embs).astype('float32')
 
-def answer_question(user_question, top_k=1):
+# 4. 用 FAISS 建立索引 (IndexFlatIP 用内积做相似度检索)
+d = question_embs.shape[1]    # 向量维度
+index = faiss.IndexFlatIP(d)
+index.add(question_embs)      # 批量添加所有标准问题向量
+
+def answer_question_faiss(user_question, top_k=1):
     """
-    输入用户问题，返回 top_k 个匹配结果，结果为字典列表
-    每个字典包含:
-      - matched_question: 匹配到的标准问题
-      - answer: 对应答案文本
-      - cosine_score: 余弦相似度（保留 4 位小数）
+    使用 FAISS 检索 top_k 答案
+    返回格式：list of dict, 每 dict 包含 matched_question, answer, cosine_score
     """
-    # 编码用户问题
-    user_embedding = model.encode(user_question, convert_to_tensor=True)
-    # 计算余弦相似度
-    cosine_scores = util.pytorch_cos_sim(user_embedding, question_embeddings)[0]
-    # 取 top_k 最大
-    top_k = min(top_k, len(questions))
-    topk_scores, topk_idxs = torch.topk(cosine_scores, k=top_k, largest=True)
+    # 1）编码并归一化用户问题向量
+    user_emb = model.encode([user_question], convert_to_tensor=False, normalize_embeddings=True)
+    user_emb = np.array(user_emb).astype('float32')
+
+    # 2）FAISS 检索
+    scores, idxs = index.search(user_emb, top_k)  # scores 是内积，相当于余弦相似度
+    scores = scores[0].tolist()
+    idxs = idxs[0].tolist()
 
     results = []
-    for score, idx in zip(topk_scores, topk_idxs):
-        idx = idx.item()
-        score = score.item()
+    for score, idx in zip(scores, idxs):
         matched_q = questions[idx]
         matched_a = qa_dict[matched_q]
         results.append({
             "matched_question": matched_q,
             "answer": matched_a,
-            "cosine_score": round(score, 4)
+            "cosine_score": round(float(score), 4)
         })
 
     if not results:
@@ -78,7 +75,7 @@ def answer_question(user_question, top_k=1):
     return results
 
 if __name__ == "__main__":
-    print("欢迎使用多语言问答系统，输入 exit 或 Ctrl+C 退出。")
+    print("欢迎使用基于 FAISS 的多语言问答系统，输入 exit 或 Ctrl+C 退出。")
     while True:
         try:
             query = input("请输入你的问题：").strip()
@@ -93,6 +90,6 @@ if __name__ == "__main__":
             print("退出问答系统。")
             break
 
-        answers = answer_question(query, top_k=1)
-        # 以 JSON 形式打印
+        answers = answer_question_faiss(query, top_k=1)
+        # JSON 格式化输出
         print(json.dumps(answers, ensure_ascii=False, indent=2))
