@@ -116,36 +116,69 @@ for idx in rank:
 
 ```python
 import torch
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
 from transformers import AutoTokenizer, AutoModel
 
-# 1. 加载预训练模型与分词器
+# 1. 准备 QA 知识库
+qa_list = [
+    {"question": "如何使用 Python 实现二分查找？",
+     "answer": "在有序数组上定义左右指针，循环折半查找直到找到目标或区间为空。"},
+    {"question": "什么是 TF–IDF？",
+     "answer": "TF–IDF 是一种基于词频和逆文档频率的文本向量化方法，用于信息检索和特征提取。"},
+    {"question": "怎样加载 Hugging Face 的预训练模型？",
+     "answer": "使用 `AutoTokenizer.from_pretrained` 和 `AutoModel.from_pretrained` 即可加载分词器和模型。"},
+    {"question": "如何在 PyTorch 中禁用梯度计算？",
+     "answer": "在推理阶段使用 `with torch.no_grad():` 上下文管理器来禁用梯度。"},
+]
+
+questions = [item["question"] for item in qa_list]
+
+# 2. 加载 BERT 分词器与模型
 MODEL_NAME = "nlptown/bert-base-multilingual-uncased-sentiment"
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModel.from_pretrained(MODEL_NAME)
+model.eval()
 
-# 2. 准备文本
-texts = [
-    "我非常喜欢这次模型的表现！",
-    "这个示例的效果并不理想。"
+# 3. 预计算知识库问题的向量（[CLS] 池化）
+with torch.no_grad():
+    encoded = tokenizer(questions, padding=True, truncation=True, return_tensors="pt")
+    outputs = model(**encoded)
+    qa_vecs = outputs.last_hidden_state[:, 0, :].cpu().numpy()
+
+# 4. 定义检索函数
+def retrieve_answer(user_question, top_k=1):
+    enc = tokenizer([user_question], padding=True, truncation=True, return_tensors="pt")
+    with torch.no_grad():
+        out = model(**enc)
+    q_vec = out.last_hidden_state[:, 0, :].cpu().numpy()
+    sims = cosine_similarity(q_vec, qa_vecs).flatten()
+    idxs = np.argsort(-sims)[:top_k]
+    results = []
+    for idx in idxs:
+        results.append({
+            "matched_question": qa_list[idx]["question"],
+            "answer": qa_list[idx]["answer"],
+            "score": float(sims[idx])
+        })
+    return results
+
+# 5. 示例调用
+test_questions = [
+    "怎么在有序数组里做二分搜索？",
+    "怎样用 transformers 加载模型？",
+    "如何关闭 PyTorch 的梯度？"
 ]
 
-# 3. 编码 & 模型推理（禁用梯度）
-encoded = tokenizer(
-    texts,
-    padding=True,
-    truncation=True,
-    return_tensors="pt"
-)
-with torch.no_grad():
-    outputs = model(**encoded)
+for uq in test_questions:
+    hits = retrieve_answer(uq, top_k=1)
+    hit = hits[0]
+    print(f"用户输入：{uq}")
+    print(f"匹配问句：{hit['matched_question']}")
+    print(f"答案      ：{hit['answer']}")
+    print(f"相似度    ：{hit['score']:.4f}")
+    print("-" * 50)
 
-# 4. 提取向量
-last_hidden = outputs.last_hidden_state  # (batch_size, seq_len, hidden_size)
-cls_vecs = last_hidden[:, 0, :]          # [CLS] 池化向量
-mean_vecs = last_hidden.mean(dim=1)      # 平均池化向量
-
-print("每条文本的 [CLS] 向量维度：", cls_vecs.shape)
-print("每条文本的平均池化向量维度：", mean_vecs.shape)
 ```
 
 ---
