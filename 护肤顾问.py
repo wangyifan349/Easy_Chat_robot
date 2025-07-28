@@ -482,10 +482,11 @@ qa_dict.extend([
 ])
 
 
+
 qa_dict.extend([
     {
         "question": "如何计算两点之间的欧氏距离（L2 距离）？",
-        "answer": """
+        "answer": '''
 使用欧氏距离公式：
 
 distance = sqrt(Σ_i (x_i - y_i)^2)
@@ -514,11 +515,11 @@ if __name__ == "__main__":
 ```
 
 适用场景：图像特征匹配、聚类、最近邻搜索等。
-"""
+'''
     },
     {
         "question": "如何计算向量之间的余弦相似度？",
-        "answer": """
+        "answer": '''
 余弦相似度衡量两个向量在方向上的相似程度，公式：
 
 cosine_similarity = (a · b) / (||a|| * ||b||)
@@ -549,11 +550,11 @@ if __name__ == "__main__":
     sim = cosine_similarity(v1, v2)
     print(f"余弦相似度: {sim:.4f}")  # ≈0.9746
 ```
-"""
+'''
     },
     {
         "question": "如何使用 OpenCV + Dlib 对两张人脸图片进行基本对比？",
-        "answer": """
+        "answer": '''
 基本流程：
 1. 人脸检测  
 2. 关键点定位  
@@ -602,11 +603,11 @@ if __name__ == "__main__":
         print(f"L2 距离: {l2_dist:.4f}")
         print(f"余弦相似度: {cos_sim:.4f}")
 ```
-"""
+'''
     },
     {
         "question": "如何计算网络传输与磁盘 I/O 的吞吐率？",
-        "answer": """
+        "answer": '''
 吞吐率 = 传输的数据量 / 时间，常用单位 MB/s（Megabytes per second） 或 Mbps（Megabits per second）。
 
 下面使用 psutil 库监测指定时间间隔内的网卡和磁盘吞吐率：
@@ -614,38 +615,94 @@ if __name__ == "__main__":
 ```python
 import psutil
 import time
-from typing import Tuple
+from typing import Optional, Tuple
 
-def net_io_speed(interval: float = 1.0) -> Tuple[float, float]:
-    """返回 (上行 MB/s, 下行 MB/s)。"""
-    before = psutil.net_io_counters()
-    time.sleep(interval)
-    after = psutil.net_io_counters()
-    sent = (after.bytes_sent - before.bytes_sent) / interval
-    recv = (after.bytes_recv - before.bytes_recv) / interval
-    # 转为 MB/s
-    return sent / (1024**2), recv / (1024**2)
+_prev_net = None  # 上一次采样的网络快照和时间
+_prev_disk = None  # 上一次采样的磁盘快照和时间
 
-def disk_io_speed(interval: float = 1.0) -> Tuple[float, float]:
-    """返回 (读 MB/s, 写 MB/s)。"""
-    before = psutil.disk_io_counters()
-    time.sleep(interval)
-    after = psutil.disk_io_counters()
-    read = (after.read_bytes - before.read_bytes) / interval
-    write = (after.write_bytes - before.write_bytes) / interval
-    return read / (1024**2), write / (1024**2)
+def _now() -> float:
+    """高精度时间戳。"""
+    return time.perf_counter()
+
+def net_io_speed(interval: Optional[float] = 1.0) -> Tuple[float, float]:
+    """
+    返回上行、下行吞吐率，单位 MB/s。
+    若 interval 不为 None，则阻塞 interval 秒后测量；
+    否则基于上次快照非阻塞测量。
+    """
+    global _prev_net
+    t1 = _now()
+    counters1 = psutil.net_io_counters()
+
+    if interval is not None or _prev_net is None:
+        time.sleep(interval or 0)
+        t0 = t1
+        counters0 = counters1
+        t1 = _now()
+        counters1 = psutil.net_io_counters()
+    else:
+        counters0, t0 = _prev_net
+
+    sent_delta = counters1.bytes_sent - counters0.bytes_sent
+    recv_delta = counters1.bytes_recv - counters0.bytes_recv
+    dt = t1 - t0 if t1 - t0 > 0 else 1e-6
+
+    _prev_net = (counters1, t1)
+    up = sent_delta / dt / (1024**2)
+    down = recv_delta / dt / (1024**2)
+    return up, down
+
+def disk_io_speed(interval: Optional[float] = 1.0) -> Tuple[float, float]:
+    """
+    返回读、写吞吐率，单位 MB/s。interval 同上。
+    """
+    global _prev_disk
+    t1 = _now()
+    counters1 = psutil.disk_io_counters()
+
+    if interval is not None or _prev_disk is None:
+        time.sleep(interval or 0)
+        t0 = t1
+        counters0 = counters1
+        t1 = _now()
+        counters1 = psutil.disk_io_counters()
+    else:
+        counters0, t0 = _prev_disk
+
+    read_delta = counters1.read_bytes - counters0.read_bytes
+    write_delta = counters1.write_bytes - counters0.write_bytes
+    dt = t1 - t0 if t1 - t0 > 0 else 1e-6
+
+    _prev_disk = (counters1, t1)
+    rd = read_delta / dt / (1024**2)
+    wr = write_delta / dt / (1024**2)
+    return rd, wr
 
 if __name__ == "__main__":
-    up, down = net_io_speed()
-    rd, wr = disk_io_speed()
+    up, down = net_io_speed(interval=1.0)
+    rd, wr = disk_io_speed(interval=1.0)
     print(f"网络 ↑{up:.2f} MB/s, ↓{down:.2f} MB/s")
     print(f"磁盘 读{rd:.2f} MB/s, 写{wr:.2f} MB/s")
+
+    net_io_speed(interval=1.0)
+    disk_io_speed(interval=1.0)
+
+    print("\\n持续监测（每 0.5s 打印一次）：")
+    try:
+        while True:
+            time.sleep(0.5)
+            up, down = net_io_speed(interval=None)
+            rd, wr = disk_io_speed(interval=None)
+            ts = time.strftime("%H:%M:%S")
+            print(f"[{ts}] 网络 ↑{up:.2f} MB/s, ↓{down:.2f} MB/s | 磁盘 读{rd:.2f} MB/s, 写{wr:.2f} MB/s")
+    except KeyboardInterrupt:
+        print("监测结束。")
 ```
-"""
+'''
     },
     {
         "question": "如何在 Python 中高效计算二维点集的 L2 距离矩阵？",
-        "answer": """
+        "answer": '''
 给定点集 A (m×d) 和 B (n×d)，返回形状为 (m, n) 的距离矩阵 D，其中
 
 D[i, j] = ||A[i] - B[j]||_2.
@@ -656,31 +713,579 @@ D[i, j] = ||A[i] - B[j]||_2.
 import numpy as np
 from typing import Sequence
 
-def pairwise_l2_np(
+def pairwise_l2_np_fast(
     A: Sequence[Sequence[float]],
     B: Sequence[Sequence[float]]
 ) -> np.ndarray:
-    """返回 A 和 B 之间的成对 L2 距离矩阵。"""
-    A_arr = np.asarray(A, dtype=float)  # shape: (m, d)
-    B_arr = np.asarray(B, dtype=float)  # shape: (n, d)
-    if A_arr.ndim != 2 or B_arr.ndim != 2 or A_arr.shape[1] != B_arr.shape[1]:
+    """更高效地计算 A 和 B 之间的成对 L2 距离矩阵。"""
+    A = np.asarray(A, dtype=np.float64)  # shape: (m, d)
+    B = np.asarray(B, dtype=np.float64)  # shape: (n, d)
+    if A.ndim != 2 or B.ndim != 2 or A.shape[1] != B.shape[1]:
         raise ValueError("输入应为同维度的二维点集")
 
-    # 扩展维度以利用广播：(m, 1, d) - (1, n, d) -> (m, n, d)
-    diff = A_arr[:, np.newaxis, :] - B_arr[np.newaxis, :, :]
-    # 沿最后一维计算范数，得到 (m, n)
-    return np.linalg.norm(diff, axis=2)
+    A_sq = np.einsum('ij,ij->i', A, A)
+    B_sq = np.einsum('ij,ij->i', B, B)
+    cross = A @ B.T
+    d2 = A_sq[:, None] + B_sq[None, :] - 2 * cross
+    np.maximum(d2, 0, out=d2)
+    return np.sqrt(d2)
 
 if __name__ == "__main__":
     A = [[0, 0], [1, 1], [2, 2]]
     B = [[1, 0], [2, 1]]
-    D = pairwise_l2_np(A, B)
+    D = pairwise_l2_np_fast(A, B)
     print(D)
-    # 结果:
+    # 预期输出：
     # [[1.         2.23606798]
     #  [1.         1.        ]
     #  [2.23606798 1.        ]]
 ```
-"""
+'''
+    }
+])
+
+
+
+
+
+
+
+```python
+qa_dict.extend([
+    {
+        "question": "什么是 KMP 算法？如何高效实现字符串匹配？",
+        "answer": '''
+KMP（Knuth–Morris–Pratt）算法是一种高效的字符串匹配算法，避免了在匹配失败时回溯主串指针，从而保证时间复杂度为 O(n + m)。  
+核心在于预处理模式串，构造最长相等前后缀数组（lps）来利用已经匹配过的信息。
+
+```python
+from typing import List
+
+def kmp_prefix(pattern: str) -> List[int]:
+    """构造模式串的最长前缀后缀表 lps。"""
+    lps = [0] * len(pattern)
+    j = 0
+    for i in range(1, len(pattern)):
+        while j > 0 and pattern[i] != pattern[j]:
+            j = lps[j - 1]
+        if pattern[i] == pattern[j]:
+            j += 1
+            lps[i] = j
+    return lps
+
+def kmp_search(text: str, pattern: str) -> List[int]:
+    """返回 pattern 在 text 中所有匹配的起始索引。"""
+    if not pattern:
+        return []
+    lps = kmp_prefix(pattern)
+    result = []
+    j = 0
+    for i in range(len(text)):
+        while j > 0 and text[i] != pattern[j]:
+            j = lps[j - 1]
+        if text[i] == pattern[j]:
+            j += 1
+        if j == len(pattern):
+            result.append(i - j + 1)
+            j = lps[j - 1]
+    return result
+
+if __name__ == "__main__":
+    text = "ababcabcabababd"
+    pattern = "ababd"
+    positions = kmp_search(text, pattern)
+    print(f"匹配位置：{positions}")  # [10]
+```
+'''
+    },
+    {
+        "question": "如何计算两个字符串的最长公共子序列（LCS）？",
+        "answer": '''
+最长公共子序列（Longest Common Subsequence, LCS）指两个序列中最长的公共子序列，不要求连续，但要保持相对顺序。
+
+```python
+from typing import Tuple
+
+def lcs_length(s1: str, s2: str) -> Tuple[int, str]:
+    m, n = len(s1), len(s2)
+    dp = [[0]*(n+1) for _ in range(m+1)]
+
+    for i in range(m):
+        for j in range(n):
+            if s1[i] == s2[j]:
+                dp[i+1][j+1] = dp[i][j] + 1
+            else:
+                dp[i+1][j+1] = max(dp[i][j+1], dp[i+1][j])
+
+    lcs_chars = []
+    i, j = m, n
+    while i > 0 and j > 0:
+        if s1[i-1] == s2[j-1]:
+            lcs_chars.append(s1[i-1])
+            i -= 1
+            j -= 1
+        elif dp[i-1][j] >= dp[i][j-1]:
+            i -= 1
+        else:
+            j -= 1
+    lcs_chars.reverse()
+    return dp[m][n], "".join(lcs_chars)
+
+if __name__ == "__main__":
+    s1 = "ABCBDAB"
+    s2 = "BDCABA"
+    length, subseq = lcs_length(s1, s2)
+    print(f"LCS长度: {length}, 一个LCS: {subseq}")
+    # 输出: LCS长度: 4, 一个LCS: BCBA
+```
+'''
+    },
+    {
+        "question": "如何计算两个字符串之间的编辑距离（Levenshtein距离）？",
+        "answer": '''
+编辑距离是指将一个字符串转换成另一个字符串所需的最少单字符编辑操作数，包括插入、删除和替换。
+
+```python
+def levenshtein_distance(s1: str, s2: str) -> int:
+    m, n = len(s1), len(s2)
+    dp = [[0]*(n+1) for _ in range(m+1)]
+
+    for i in range(m+1):
+        dp[i][0] = i
+    for j in range(n+1):
+        dp[0][j] = j
+
+    for i in range(1, m+1):
+        for j in range(1, n+1):
+            if s1[i-1] == s2[j-1]:
+                dp[i][j] = dp[i-1][j-1]
+            else:
+                dp[i][j] = min(
+                    dp[i-1][j] + 1,
+                    dp[i][j-1] + 1,
+                    dp[i-1][j-1] + 1
+                )
+    return dp[m][n]
+
+if __name__ == "__main__":
+    w1 = "kitten"
+    w2 = "sitting"
+    dist = levenshtein_distance(w1, w2)
+    print(f"编辑距离: {dist}")  # 3
+```
+'''
+    },
+    {
+        "question": "如何用滑动窗口算法寻找字符串中不重复的最长子串？",
+        "answer": '''
+滑动窗口用于寻找字符串中最长无重复字符的子串，复杂度 O(n)。
+
+```python
+def length_of_longest_substring(s: str) -> int:
+    char_index = {}
+    left = 0
+    max_len = 0
+    for right, c in enumerate(s):
+        if c in char_index and char_index[c] >= left:
+            left = char_index[c] + 1
+        char_index[c] = right
+        max_len = max(max_len, right - left + 1)
+    return max_len
+
+if __name__ == "__main__":
+    s = "abcabcbb"
+    print(f"最长无重复子串长度: {length_of_longest_substring(s)}")  # 3
+```
+'''
+    },
+    {
+        "question": "如何用动态规划实现0-1背包问题？",
+        "answer": '''
+0-1背包问题：给定物品重量和价值，求在背包容量限制下能取得的最大价值。
+
+```python
+from typing import List, Tuple
+
+def knapsack_01(weights: List[int], values: List[int], capacity: int) -> int:
+    n = len(weights)
+    dp = [0] * (capacity + 1)
+    for i in range(n):
+        for w in range(capacity, weights[i] -1, -1):
+            dp[w] = max(dp[w], dp[w - weights[i]] + values[i])
+    return dp[capacity]
+
+if __name__ == "__main__":
+    w = [2, 1, 3, 2]
+    v = [12, 10, 20, 15]
+    cap = 5
+    print(f"最大价值: {knapsack_01(w, v, cap)}") # 37
+```
+'''
+    },
+    {
+        "question": "如何实现快速幂算法计算大整数的乘方取模？",
+        "answer": '''
+快速幂用于高效计算 (x^n) % mod，时间复杂度 O(log n)。
+
+```python
+def fast_pow(x: int, n: int, mod: int) -> int:
+    result = 1 % mod
+    base = x % mod
+    while n > 0:
+        if n & 1:
+            result = (result * base) % mod
+        base = (base * base) % mod
+        n >>= 1
+    return result
+
+if __name__ == "__main__":
+    x = 2
+    n = 10
+    mod = 1000
+    print(f"{x}^{n} mod {mod} = {fast_pow(x, n, mod)}")  # 24
+```
+'''
+    },
+    {
+        "question": "如何用二分查找算法查找有序数组中的目标值？",
+        "answer": '''
+二分查找时间复杂度为 O(log n)，适用于有序数组。
+
+```python
+from typing import List, Optional
+
+def binary_search(arr: List[int], target: int) -> Optional[int]:
+    left, right = 0, len(arr) - 1
+    while left <= right:
+        mid = (left + right) // 2
+        if arr[mid] == target:
+            return mid
+        elif arr[mid] < target:
+            left = mid + 1
+        else:
+            right = mid - 1
+    return None
+
+if __name__ == "__main__":
+    nums = [1,3,5,7,9]
+    t = 5
+    idx = binary_search(nums, t)
+    print(f"目标 {t} 的索引: {idx}")  # 2
+```
+'''
+    },
+    {
+        "question": "Trie树（字典树）是什么，如何用它实现字符串前缀查询？",
+        "answer": '''
+Trie树是用于高效存储和查询字符串集合的数据结构，支持快速的前缀搜索。
+
+```python
+class TrieNode:
+    def __init__(self):
+        self.children = {}
+        self.is_end = False
+
+class Trie:
+    def __init__(self):
+        self.root = TrieNode()
+
+    def insert(self, word: str) -> None:
+        node = self.root
+        for c in word:
+            if c not in node.children:
+                node.children[c] = TrieNode()
+            node = node.children[c]
+        node.is_end = True
+
+    def search(self, word: str) -> bool:
+        node = self.root
+        for c in word:
+            if c not in node.children:
+                return False
+            node = node.children[c]
+        return node.is_end
+
+    def starts_with(self, prefix: str) -> bool:
+        node = self.root
+        for c in prefix:
+            if c not in node.children:
+                return False
+            node = node.children[c]
+        return True
+
+if __name__ == "__main__":
+    trie = Trie()
+    trie.insert("apple")
+    print(trie.search("apple"))   # True
+    print(trie.search("app"))     # False
+    print(trie.starts_with("app"))# True
+    trie.insert("app")
+    print(trie.search("app"))     # True
+```
+'''
+    },
+    {
+        "question": "Dijkstra算法如何计算带权图的最短路径？",
+        "answer": '''
+Dijkstra 算法用于计算单源最短路径，时间复杂度 O(E log V)。
+
+```python
+import heapq
+from typing import List, Tuple
+
+def dijkstra(graph: List[List[Tuple[int, int]]], start: int) -> List[float]:
+    """
+    graph是邻接表，graph[u] = [(v, w), ...]
+    返回 start 到各点的最短距离。
+    """
+    n = len(graph)
+    dist = [float('inf')] * n
+    dist[start] = 0
+    heap = [(0, start)]
+
+    while heap:
+        d, u = heapq.heappop(heap)
+        if d > dist[u]:
+            continue
+        for v, w in graph[u]:
+            nd = d + w
+            if nd < dist[v]:
+                dist[v] = nd
+                heapq.heappush(heap, (nd, v))
+    return dist
+
+if __name__ == "__main__":
+    graph = [
+        [(1, 2), (2, 5)],
+        [(2, 1), (3, 4)],
+        [(3, 1)],
+        []
+    ]
+    start = 0
+    distances = dijkstra(graph, start)
+    print(f"从 {start} 出发的最短路径: {distances}")
+    # [0, 2, 3, 4]
+```
+'''
+    }
+])
+```
+
+
+
+qa_dict.extend([
+    {
+        "question": "什么是余弦相似度？如何用Python计算？",
+        "answer": '''
+余弦相似度用于衡量两个向量方向的相似度，计算两个向量夹角的余弦值，范围[-1,1]，值越大，表示越相似，常用于文本和推荐系统中。
+
+```python
+from typing import List
+import math
+
+def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
+    dot_product = sum(a*b for a,b in zip(vec1, vec2))
+    norm1 = math.sqrt(sum(a*a for a in vec1))
+    norm2 = math.sqrt(sum(b*b for b in vec2))
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+    return dot_product / (norm1 * norm2)
+
+# 示例
+if __name__ == "__main__":
+    v1 = [1, 2, 3]
+    v2 = [4, 5, 6]
+    sim = cosine_similarity(v1, v2)
+    print(f"余弦相似度: {sim:.4f}")  # 输出约0.9746
+```
+'''
+    },
+    {
+        "question": "Bellman-Ford算法如何计算最短路径？适用场景是什么？",
+        "answer": '''
+Bellman-Ford算法用于计算带负权边的单源最短路径，可检测负权环。其原理是不断松弛各边，最多执行|V|-1轮松弛。
+
+```python
+from typing import List, Tuple
+
+def bellman_ford(edges: List[Tuple[int, int, int]], n: int, start: int) -> List[float]:
+    dist = [float('inf')] * n
+    dist[start] = 0
+
+    for _ in range(n - 1):
+        updated = False
+        for u, v, w in edges:
+            if dist[u] != float('inf') and dist[u] + w < dist[v]:
+                dist[v] = dist[u] + w
+                updated = True
+        if not updated:
+            break
+
+    # 负权环检测
+    for u, v, w in edges:
+        if dist[u] != float('inf') and dist[u] + w < dist[v]:
+            return []  # 存在负权环
+
+    return dist
+
+if __name__ == "__main__":
+    edges = [
+        (0, 1, 6), (0, 2, 7), (1, 2, 8), (1, 3, 5),
+        (1, 4, -4), (2, 3, -3), (2, 4, 9), (3, 1, -2),
+        (4, 0, 2), (4, 3, 7)
+    ]
+    dist = bellman_ford(edges, 5, 0)
+    if dist:
+        print("起点0到各点最短距离:", dist)
+    else:
+        print("检测到负权环，无法计算最短路径。")
+```
+'''
+    },
+    {
+        "question": "Floyd-Warshall算法怎样求任意两点的最短路径？",
+        "answer": '''
+Floyd-Warshall算法通过动态规划，逐步尝试所有中间节点更新任意两点间最短路径，适合稠密图，时间复杂度O(n³)。
+
+```python
+from typing import List
+
+def floyd_warshall(graph: List[List[float]]) -> List[List[float]]:
+    n = len(graph)
+    dist = [row[:] for row in graph]  # 深拷贝，避免修改原图
+
+    for k in range(n):
+        for i in range(n):
+            for j in range(n):
+                if dist[i][k] + dist[k][j] < dist[i][j]:
+                    dist[i][j] = dist[i][k] + dist[k][j]
+    return dist
+
+if __name__ == "__main__":
+    INF = float('inf')
+    graph = [
+        [0, 3, INF, 7],
+        [8, 0, 2, INF],
+        [5, INF, 0, 1],
+        [2, INF, INF, 0]
+    ]
+    dist = floyd_warshall(graph)
+    print("任意两点间最短路径矩阵:")
+    for row in dist:
+        print(row)
+```
+'''
+    },
+    {
+        "question": "如何用Trie树实现单词插入和计数？",
+        "answer": '''
+Trie树是一种用于字符串快速查找的树形结构，可高效支持前缀查询及单词计数。
+
+```python
+class TrieNode:
+    def __init__(self):
+        self.children = {}
+        self.count = 0  # 此节点结尾单词出现次数
+
+class Trie:
+    def __init__(self):
+        self.root = TrieNode()
+
+    def insert(self, word: str) -> None:
+        node = self.root
+        for c in word:
+            node = node.children.setdefault(c, TrieNode())
+        node.count += 1
+
+    def count_word(self, word: str) -> int:
+        node = self.root
+        for c in word:
+            if c not in node.children:
+                return 0
+            node = node.children[c]
+        return node.count
+
+if __name__ == "__main__":
+    trie = Trie()
+    words = ["apple", "app", "apple", "apply"]
+    for w in words:
+        trie.insert(w)
+    print(trie.count_word("apple"))  # 2
+    print(trie.count_word("app"))    # 1
+    print(trie.count_word("ap"))     # 0
+```
+'''
+    },
+    {
+        "question": "堆排序Heap Sort如何实现？",
+        "answer": '''
+堆排序是利用堆结构实现的排序算法，将数组视为二叉堆，先建堆，再依次取出堆顶元素放到末尾。
+
+```python
+from typing import List
+
+def heapify(arr: List[int], n: int, i: int) -> None:
+    largest = i
+    l, r = 2*i + 1, 2*i + 2
+
+    if l < n and arr[l] > arr[largest]:
+        largest = l
+    if r < n and arr[r] > arr[largest]:
+        largest = r
+    if largest != i:
+        arr[i], arr[largest] = arr[largest], arr[i]
+        heapify(arr, n, largest)
+
+def heap_sort(arr: List[int]) -> None:
+    n = len(arr)
+    # 构建最大堆
+    for i in range(n//2 - 1, -1, -1):
+        heapify(arr, n, i)
+    # 依次取出最大值
+    for i in range(n-1, 0, -1):
+        arr[0], arr[i] = arr[i], arr[0]
+        heapify(arr, i, 0)
+
+if __name__ == "__main__":
+    data = [4, 10, 3, 5, 1]
+    heap_sort(data)
+    print(data)  # [1, 3, 4, 5, 10]
+```
+'''
+    },
+    {
+        "question": "如何用Manacher算法求最长回文子串长度？",
+        "answer": '''
+Manacher算法通过对字符串插入分隔符，统一处理奇偶长度回文，实现O(n)时间复杂度求最长回文子串长度。
+
+```python
+def manacher(s: str) -> int:
+    # 插入#处理奇偶回文统一
+    t = '#' + '#'.join(s) + '#'
+    n = len(t)
+    p = [0] * n
+    center = right = 0
+    max_len = 0
+
+    for i in range(n):
+        if i < right:
+            p[i] = min(right - i, p[2*center - i])
+        else:
+            p[i] = 0
+        # 中心扩展
+        while i - p[i] - 1 >= 0 and i + p[i] + 1 < n and t[i - p[i] - 1] == t[i + p[i] + 1]:
+            p[i] += 1
+        # 更新回文中心和右边界
+        if i + p[i] > right:
+            center, right = i, i + p[i]
+        max_len = max(max_len, p[i])
+    return max_len
+
+if __name__ == "__main__":
+    s = "abacdfgdcaba"
+    length = manacher(s)
+    print(f"最长回文子串长度: {length}")  # 输出3，如"aba"
+```
+'''
     }
 ])
