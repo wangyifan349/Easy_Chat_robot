@@ -482,7 +482,6 @@ qa_dict.extend([
 ])
 
 
-
 qa_dict.extend([
     {
         "question": "如何计算两点之间的欧氏距离（L2 距离）？",
@@ -498,10 +497,9 @@ import math
 from typing import Sequence
 
 def l2_distance(a: Sequence[float], b: Sequence[float]) -> float:
-    \"\"\"计算等长向量 a 和 b 之间的 L2 距离。\"\"\"
+    """计算等长向量 a 和 b 之间的 L2 距离。"""
     if len(a) != len(b):
         raise ValueError("向量长度必须相同")
-    # 累加平方差
     sq_sum = 0.0
     for ai, bi in zip(a, b):
         diff = ai - bi
@@ -515,7 +513,8 @@ if __name__ == "__main__":
     print(f"L2 距离: {l2_distance(p1, p2):.4f}")  # ≈7.0711
 ```
 
-适用场景：图像特征匹配、聚类、最近邻搜索等。"""
+适用场景：图像特征匹配、聚类、最近邻搜索等。
+"""
     },
     {
         "question": "如何计算向量之间的余弦相似度？",
@@ -531,7 +530,7 @@ import numpy as np
 from typing import Sequence
 
 def cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
-    \"\"\"计算向量 a 和 b 之间的余弦相似度。\"\"\"
+    """计算向量 a 和 b 之间的余弦相似度。"""
     a_arr = np.asarray(a, dtype=float)
     b_arr = np.asarray(b, dtype=float)
     if a_arr.ndim != 1 or b_arr.ndim != 1:
@@ -549,7 +548,8 @@ if __name__ == "__main__":
     v2 = [4, 5, 6]
     sim = cosine_similarity(v1, v2)
     print(f"余弦相似度: {sim:.4f}")  # ≈0.9746
-```"""
+```
+"""
     },
     {
         "question": "如何使用 OpenCV + Dlib 对两张人脸图片进行基本对比？",
@@ -578,7 +578,7 @@ _shape_predictor = dlib.shape_predictor(SHAPE_PREDICTOR)
 _face_rec_model = dlib.face_recognition_model_v1(FACE_RECOGNITION_MODEL)
 
 def get_face_embedding(image_path: str) -> Optional[np.ndarray]:
-    \"\"\"读取图片并返回第一张人脸的 128D 嵌入向量，未检测到人脸返回 None。\"\"\"
+    """读取图片并返回第一张人脸的 128D 嵌入向量，未检测到人脸返回 None。"""
     img = cv2.imread(image_path)
     if img is None:
         raise FileNotFoundError(f"无法读取图片: {image_path}")
@@ -601,7 +601,8 @@ if __name__ == "__main__":
         cos_sim = np.dot(emb1, emb2) / (np.linalg.norm(emb1) * np.linalg.norm(emb2))
         print(f"L2 距离: {l2_dist:.4f}")
         print(f"余弦相似度: {cos_sim:.4f}")
-```"""
+```
+"""
     },
     {
         "question": "如何计算网络传输与磁盘 I/O 的吞吐率？",
@@ -616,7 +617,7 @@ import time
 from typing import Tuple
 
 def net_io_speed(interval: float = 1.0) -> Tuple[float, float]:
-    \"\"\"返回 (上行 MB/s, 下行 MB/s)。\"\"\"
+    """返回 (上行 MB/s, 下行 MB/s)。"""
     before = psutil.net_io_counters()
     time.sleep(interval)
     after = psutil.net_io_counters()
@@ -626,7 +627,7 @@ def net_io_speed(interval: float = 1.0) -> Tuple[float, float]:
     return sent / (1024**2), recv / (1024**2)
 
 def disk_io_speed(interval: float = 1.0) -> Tuple[float, float]:
-    \"\"\"返回 (读 MB/s, 写 MB/s)。\"\"\"
+    """返回 (读 MB/s, 写 MB/s)。"""
     before = psutil.disk_io_counters()
     time.sleep(interval)
     after = psutil.disk_io_counters()
@@ -639,7 +640,8 @@ if __name__ == "__main__":
     rd, wr = disk_io_speed()
     print(f"网络 ↑{up:.2f} MB/s, ↓{down:.2f} MB/s")
     print(f"磁盘 读{rd:.2f} MB/s, 写{wr:.2f} MB/s")
-```"""
+```
+"""
     },
     {
         "question": "如何在 Python 中高效计算二维点集的 L2 距离矩阵？",
@@ -658,7 +660,7 @@ def pairwise_l2_np(
     A: Sequence[Sequence[float]],
     B: Sequence[Sequence[float]]
 ) -> np.ndarray:
-    \"\"\"返回 A 和 B 之间的成对 L2 距离矩阵。\"\"\"
+    """返回 A 和 B 之间的成对 L2 距离矩阵。"""
     A_arr = np.asarray(A, dtype=float)  # shape: (m, d)
     B_arr = np.asarray(B, dtype=float)  # shape: (n, d)
     if A_arr.ndim != 2 or B_arr.ndim != 2 or A_arr.shape[1] != B_arr.shape[1]:
@@ -678,6 +680,7 @@ if __name__ == "__main__":
     # [[1.         2.23606798]
     #  [1.         1.        ]
     #  [2.23606798 1.        ]]
-```"""
+```
+"""
     }
 ])
