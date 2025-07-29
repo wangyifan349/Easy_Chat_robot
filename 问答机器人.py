@@ -1,9 +1,15 @@
+import os
 import json
 import numpy as np
 import faiss
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
 
-# 1. 构造问答对字典
+MODEL_NAME = 'paraphrase-multilingual-mpnet-base-v2'   # 你想存的模型名或本地路径
+MODEL_LOCAL_PATH = './saved_model'                     # 模型保存路径
+EMBS_PATH = './questions_embs.npy'                      # 预计算向量保存路径
+INDEX_PATH = './faiss.index'                            # faiss索引路径
+
+# 1. 问答对字典
 qa_dict = {
     "如何计算余弦相似度？": (
         """余弦相似度计算公式如下：
@@ -25,34 +31,46 @@ def l2_distance(vec1, vec2):
     "高血压是什么？": (
         """高血压（Hypertension）是指动脉血压持续升高的一种慢性非传染性疾病…"""
     ),
-    # … 在这里继续添加其它问答对 …
+    # … 可以继续
 }
 
-# 2. 加载 Sentence-BERT 多语言模型
-model_name = 'paraphrase-multilingual-mpnet-base-v2'
-model = SentenceTransformer(model_name)
-
-# 3. 准备标准问题向量，并做 L2 归一化
 questions = list(qa_dict.keys())
-question_embs = model.encode(questions, convert_to_tensor=False, normalize_embeddings=True)  # normalize_embeddings=True 会自动 L2 归一化
-question_embs = np.array(question_embs).astype('float32')
 
-# 4. 用 FAISS 建立索引 (IndexFlatIP 用内积做相似度检索)
-d = question_embs.shape[1]    # 向量维度
-index = faiss.IndexFlatIP(d)
-index.add(question_embs)      # 批量添加所有标准问题向量
+# 2. 模型加载或从本地加载
+if os.path.exists(MODEL_LOCAL_PATH):
+    print(f"从本地加载模型: {MODEL_LOCAL_PATH}")
+    model = SentenceTransformer(MODEL_LOCAL_PATH)
+else:
+    print(f"下载模型: {MODEL_NAME}，并保存在: {MODEL_LOCAL_PATH}")
+    model = SentenceTransformer(MODEL_NAME)
+    model.save(MODEL_LOCAL_PATH)
+
+# 3. 编码与索引加载 / 创建
+if os.path.exists(EMBS_PATH) and os.path.exists(INDEX_PATH):
+    # 加载预先计算向量和索引
+    print("加载本地预训练向量和faiss索引...")
+    question_embs = np.load(EMBS_PATH)
+    index = faiss.read_index(INDEX_PATH)
+else:
+    # 重新计算向量并建索引，保存到本地
+    print("计算问题向量并建立faiss索引...")
+    question_embs = model.encode(questions, convert_to_tensor=False, normalize_embeddings=True)
+    question_embs = np.array(question_embs).astype('float32')
+
+    d = question_embs.shape[1]
+    index = faiss.IndexFlatIP(d)
+    index.add(question_embs)
+
+    # 保存
+    np.save(EMBS_PATH, question_embs)
+    faiss.write_index(index, INDEX_PATH)
+    print("向量和索引保存完成。")
 
 def answer_question_faiss(user_question, top_k=1):
-    """
-    使用 FAISS 检索 top_k 答案
-    返回格式：list of dict, 每 dict 包含 matched_question, answer, cosine_score
-    """
-    # 1）编码并归一化用户问题向量
     user_emb = model.encode([user_question], convert_to_tensor=False, normalize_embeddings=True)
     user_emb = np.array(user_emb).astype('float32')
 
-    # 2）FAISS 检索
-    scores, idxs = index.search(user_emb, top_k)  # scores 是内积，相当于余弦相似度
+    scores, idxs = index.search(user_emb, top_k)
     scores = scores[0].tolist()
     idxs = idxs[0].tolist()
 
@@ -91,5 +109,4 @@ if __name__ == "__main__":
             break
 
         answers = answer_question_faiss(query, top_k=1)
-        # JSON 格式化输出
         print(json.dumps(answers, ensure_ascii=False, indent=2))
